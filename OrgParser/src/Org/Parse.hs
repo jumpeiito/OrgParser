@@ -128,11 +128,11 @@ orgTitleParse = do
     indicate = char '[' >> many digit >>
                char '/' >> many digit >> char ']' >> return ()
     coreF    = manyTill' anyToken
-    coreP    = do
-      try (coreF (orgTimeStampParse >> many space >> orgTagsParse))
-      <|> try (coreF orgTimeStampParse)
-      <|> try (coreF orgTagsParse)
-      <|> many anyChar
+    probabilities = map (try . coreF) [ orgTimeStampParse >> many space >> orgTagsParse
+                                      , orgTimeStampParse
+                                      , orgTagsParse]
+    coreP = do
+      anyHit probabilities <|> many anyChar
 -- ---title----------------------------------------------------
 
 -- ---property-------------------------------------------------
