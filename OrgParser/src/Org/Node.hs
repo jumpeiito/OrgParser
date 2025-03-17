@@ -2,11 +2,18 @@ module Org.Node
   (
     timestamps
   , hasChildrenAliveTime
+  , hasAliveTime
+  , notTODO
   , notChildrenTODO
   , nodeToList
+  , collectNodeList
   , addNode
   , showTitle
   , makeOrgNode
+  , location
+  , description
+  , (~~>)
+  , OrgNode (..)
   )
 where
 
@@ -45,10 +52,26 @@ hasChildrenAliveTime o@(OrgNode _ _ Nothing)      = hasAliveTime o
 hasChildrenAliveTime o@(OrgNode _ _ (Just child)) =
   (hasAliveTime o) || (hasAliveTime child)
 
+notTODO :: OrgNode -> Bool
+notTODO = not . isJust . (~~> todo)
+
 notChildrenTODO :: OrgNode -> Bool
 notChildrenTODO (OrgNode name _ Nothing) = not $ isJust $ todo name
-notChildrenTODO (OrgNode name _ (Just child)) =
-  (not $ isJust $ todo name) || notChildrenTODO child
+notChildrenTODO o@(OrgNode name _ (Just child)) = notTODO o || notChildrenTODO child
+
+location :: OrgNode -> Maybe String
+location node = loop $ node ~~> children
+  where
+    loop [] = Nothing
+    loop ((OrgProperty ("LOCATION", val)):xs) = Just val
+    loop (x:xs) = loop xs
+
+description :: OrgNode -> String
+description node = loop mempty $ node ~~> children
+  where
+    loop s [] = s
+    loop s ((OrgOther o):xs) = loop (s <> o) xs
+    loop s (_:xs) = loop s xs
 
 addNode :: OrgElement -> Maybe OrgNode -> Maybe OrgNode
 addNode el Nothing = makeOrgNode el
@@ -72,13 +95,18 @@ addNode el (Just (OrgNode name next child)) =
       Just $ OrgNode (name { children = c }) next child
 
 nodeToList :: Maybe OrgNode -> [(String, OrgNode)]
-nodeToList Nothing = []
-nodeToList node    = loop "" [] node
+nodeToList = collectNodeList (const True)
+
+collectNodeList :: (OrgNode -> Bool) -> Maybe OrgNode -> [(String, OrgNode)]
+collectNodeList _ Nothing = []
+collectNodeList f node = loop "" [] node
   where
     loop _ ret Nothing = ret
     loop path ret (Just o@(OrgNode name next child)) =
-      let newpath = path ++ "/" ++ title name in
-      [(newpath, o)] ++ (loop newpath ret child) ++ (loop path ret next)
+      let newpath = path ++ "/" ++ title name
+          attach  = if (f o) then [(newpath, o)] else [] in
+        attach ++ (loop newpath ret child) ++ (loop path ret next)
+
 
 isTitle :: OrgElement -> Bool
 isTitle (OrgTitle _ _ _ _) = True
@@ -92,4 +120,3 @@ orgTitleOrder :: OrgElement -> OrgElement -> Maybe Ordering
 orgTitleOrder t1 t2
   | isTitle t1 && isTitle t2 = Just (level t1 `compare` level t2)
   | otherwise = Nothing
-

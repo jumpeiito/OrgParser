@@ -11,6 +11,7 @@ module Org.Parse
   , orgTitleLineCoreParse
   , orgOtherLineCoreParse
   , timeToDiffTime
+  , mktime
   )
 where
 
@@ -199,8 +200,8 @@ orgLineParse s = parse orgLineCoreParse "" s
 strip :: String -> String
 strip = dropWhile isSpace . reverse . dropWhile isSpace . reverse
 
--- mktime :: Integer -> Int -> Int -> Int -> Int -> UTCTime
--- mktime y mo d h mi = UTCTime (fromGregorian y mo d) (timeToDiffTime (h, mi))
+mktime :: Integer -> Int -> Int -> Int -> Int -> UTCTime
+mktime y mo d h mi = UTCTime (fromGregorian y mo d) (timeToDiffTime (h, mi))
 
 manyTill' p end = loop
   where
