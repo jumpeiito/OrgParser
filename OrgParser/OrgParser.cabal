@@ -24,6 +24,9 @@ library
                      , parsec
                      , time
                      , mtl
+                     , shakespeare
+                     , blaze-html
+                     , req
   default-language:    Haskell2010
   ghc-options:         -Wall
                        -Wcompat
@@ -43,6 +46,9 @@ executable OrgParser
                      , parsec
                      , time
                      , mtl
+                     , shakespeare
+                     , blaze-html
+                     -- , req
   default-language:    Haskell2010
   ghc-options:         -Wall
                        -Wcompat
@@ -71,7 +77,8 @@ test-suite OrgParser-test
                      , parsec
                      , time
                      , mtl
-  default-language:    Haskell2010
+                     -- , req
+  default-language:   Haskell2010
   ghc-options:         -Wall
                        -Wcompat
                        -Widentities
