@@ -20,6 +20,7 @@ where
 
 import Org.Parse
 import Data.Maybe
+import Control.Monad.State
 
 data OrgNode a = OrgNode a (OrgNode a) (OrgNode a)
                | None
@@ -27,6 +28,7 @@ data OrgNode a = OrgNode a (OrgNode a) (OrgNode a)
 
 type OrgNodeElement = OrgNode OrgElement
 
+testTree :: OrgNode Int
 testTree = OrgNode 20 (OrgNode 200 None None)
                       (OrgNode 300 (OrgNode 12 None None)
                                    (OrgNode 100 None None))
@@ -43,61 +45,74 @@ instance Applicative OrgNode where
   _ <*> _ = None
 
 instance Monad OrgNode where
-  return a = OrgNode a None None
+  None >>= _ = None
+  (OrgNode a _ _) >>= f = f a
 
-  o@(OrgNode a n c) >>= f =
-    let OrgNode fa _ _ = f a in
-    (OrgNode fa (n >>= f) (c >>= f))
-  None >>= f = None
+instance Traversable OrgNode where
+  traverse f None = pure None
+  traverse f (OrgNode a n c) = OrgNode <$> (f a) <*> (traverse f n) <*> (traverse f c)
 
--- elements :: OrgNode a -> a
--- elements (OrgNode el _ _) = el
+-- get :: OrgNode a
+-- get = 
+element :: OrgNode a -> a
+element (OrgNode el _ _) = el
 
--- makeOrgNode :: OrgElement -> Maybe OrgNodeElement
--- makeOrgNode el = Just $ OrgNode el Nothing Nothing
+isTitle :: OrgElement -> Bool
+isTitle (OrgTitle _ _ _ _) = True
+isTitle _ = False
 
--- showTitle :: OrgNodeElement -> Maybe String
--- showTitle (OrgNode el _ _)
---   | isTitle el = Just $ title el
---   | otherwise  = Nothing
+isTimeStamp :: OrgElement -> Bool
+isTimeStamp (OrgTimeStamp _ _ _ _) = True
+isTimeStamp _ = False
+
+-- makeOrgNode :: OrgElement -> OrgNodeElement
+-- makeOrgNode = pure
+
+nodeTitle :: OrgNodeElement -> Maybe String
+nodeTitle (OrgNode el _ _)
+  | isTitle el = Just $ title el
+  | otherwise  = Nothing
 
 -- (~~>) :: OrgNodeElement -> (OrgElement -> a) -> a
 -- (~~>) (OrgNode el _ _) f = f el
 
--- timestamps :: OrgNodeElement -> [OrgElement]
--- timestamps node = filter isTimeStamp $ node ~~> children
+nodeTimeStamps :: OrgNodeElement -> [OrgElement]
+nodeTimeStamps = foldMap ((`mappend` []) . filter isTimeStamp . children)
 
--- hasAliveTime :: OrgNodeElement -> Bool
--- hasAliveTime = not . null. filter notCloseOrInActive . timestamps
---   where
---     notCloseOrInActive timestamp =
---       ((datetype timestamp) /= Closed) && ((active timestamp) /= False)
+hasAliveTime :: OrgNodeElement -> Bool
+hasAliveTime = not . null. filter notCloseOrInActive . nodeTimeStamps
+  where
+    notCloseOrInActive timestamp =
+      ((datetype timestamp) /= Closed) && ((active timestamp) /= False)
 
--- hasChildrenAliveTime :: OrgNodeElement -> Bool
--- hasChildrenAliveTime o@(OrgNode _ _ Nothing)      = hasAliveTime o
--- hasChildrenAliveTime o@(OrgNode _ _ (Just child)) =
---   (hasAliveTime o) || (hasAliveTime child)
+hasChildrenAliveTime :: OrgNodeElement -> Bool
+hasChildrenAliveTime o@(OrgNode _ _ None)  = hasAliveTime o
+hasChildrenAliveTime o@(OrgNode _ _ child) =
+  (hasAliveTime o) || (hasAliveTime child)
 
--- notTODO :: OrgNodeElement -> Bool
--- notTODO = not . isJust . (~~> todo)
+notTODO :: OrgNodeElement -> Bool
+notTODO = not . isJust . todo . element
 
--- notChildrenTODO :: OrgNodeElement -> Bool
--- notChildrenTODO (OrgNode name _ Nothing) = not $ isJust $ todo name
--- notChildrenTODO o@(OrgNode _ _ (Just child)) = notTODO o || notChildrenTODO child
+notChildrenTODO :: OrgNodeElement -> Bool
+notChildrenTODO (OrgNode name _ None) = not $ isJust $ todo name
+notChildrenTODO o@(OrgNode _ _ child) = notTODO o || notChildrenTODO child
 
--- location :: OrgNodeElement -> Maybe String
--- location node = loop $ node ~~> children
---   where
---     loop [] = Nothing
---     loop ((OrgProperty ("LOCATION", val)):_) = Just val
---     loop (_:xs) = loop xs
+nodeLocation :: OrgNodeElement -> Maybe String
+nodeLocation = loop . children . element
+  where
+    loop [] = Nothing
+    loop ((OrgProperty ("LOCATION", val)):_) = Just val
+    loop (_:xs) = loop xs
 
--- description :: OrgNodeElement -> String
--- description node = loop mempty $ node ~~> children
---   where
---     loop s [] = s
---     loop s ((OrgOther o):xs) = loop (s <> o) xs
---     loop s (_:xs) = loop s xs
+nodeDescription :: OrgNodeElement -> String
+nodeDescription = loop mempty . children . element
+  where
+    loop s [] = s
+    loop s ((OrgOther o):xs) = loop (s <> o) xs
+    loop s (_:xs) = loop s xs
+
+nextNode :: a -> OrgNode a
+
 
 -- -- addNode :: OrgElement -> Maybe OrgNode -> Maybe OrgNode
 -- -- addNode el Nothing = makeOrgNode el
@@ -133,14 +148,6 @@ instance Monad OrgNode where
 --       | f el = let newpath = path ++ "/" ++ title el in
 --                  ((newpath, el):ret, newpath)
 --       | otherwise = seed
-
--- isTitle :: OrgElement -> Bool
--- isTitle (OrgTitle _ _ _ _) = True
--- isTitle _ = False
-
--- isTimeStamp :: OrgElement -> Bool
--- isTimeStamp (OrgTimeStamp _ _ _ _) = True
--- isTimeStamp _ = False
 
 -- orgTitleOrder :: OrgElement -> OrgElement -> Maybe Ordering
 -- orgTitleOrder t1 t2
