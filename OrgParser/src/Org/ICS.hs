@@ -23,14 +23,14 @@ import  Text.Blaze.Html.Renderer.String
 
 jpTimeLocale :: TimeLocale
 jpTimeLocale =
-  TimeLocale { wDays = [ ("日曜日", "日") , ("月曜日", "月") , ("火曜日", "火")
-                       , ("水曜日", "水") , ("木曜日", "木")
-                       , ("金曜日", "金") , ("土曜日", "土")]
-             , months = [let m = (show x) ++ "月" in (m, m) | x <- [1..12]]
-             , dateTimeFmt = ""
-             , dateFmt = ""
-             , timeFmt = ""
-             , time12Fmt = ""
+  TimeLocale { wDays          = [ ("日曜日", "日") , ("月曜日", "月") , ("火曜日", "火")
+                                , ("水曜日", "水") , ("木曜日", "木")
+                                , ("金曜日", "金") , ("土曜日", "土")]
+             , months         = [let m = (show x) ++ "月" in (m, m) | x <- [1..12]]
+             , dateTimeFmt    = ""
+             , dateFmt        = ""
+             , timeFmt        = ""
+             , time12Fmt      = ""
              , knownTimeZones = []}
 
 data VEVENT = VEVENT { vstarttime :: UTCTime

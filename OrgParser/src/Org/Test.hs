@@ -16,9 +16,9 @@ testParse = do
 
 testData :: IO [OrgElement]
 testData = do
-  -- contents <- lines <$> readFile "C:/users/jumpei/Documents/home/OrgFiles/notes.org"
+  contents <- lines <$> readFile "C:/users/jumpei/Documents/home/OrgFiles/notes.org"
   -- contents <- lines <$> readFile "c:/Users/kkr0133/Documents/OrgParser/OrgParser/src/Data/String/test.org"
-  contents <- lines <$> readFile "e:/Dropbox/notes.org"
+  -- contents <- lines <$> readFile "e:/Dropbox/notes.org"
   -- contents <- lines <$> readFile "C:/users/jumpei/Documents/home/OrgFiles/notes.org"
   return $ concatMap ((mempty `fromRight`) . orgLineParse) contents
 
