@@ -5,9 +5,9 @@ module Org.ICS
   (
     VEVENT (..)
   , VCalendar (..)
-  , veventList
-  , nodeToVCalendar
-  , vcalendarToString
+  -- , veventList
+  -- , nodeToVCalendar
+  -- , vcalendarToString
   )
 where
 
@@ -23,10 +23,12 @@ import  Text.Blaze.Html.Renderer.String
 
 jpTimeLocale :: TimeLocale
 jpTimeLocale =
-  TimeLocale { wDays          = [ ("日曜日", "日") , ("月曜日", "月") , ("火曜日", "火")
-                                , ("水曜日", "水") , ("木曜日", "木")
-                                , ("金曜日", "金") , ("土曜日", "土")]
-             , months         = [let m = (show x) ++ "月" in (m, m) | x <- [1..12]]
+  TimeLocale { wDays          =
+               [ ("日曜日", "日") , ("月曜日", "月") , ("火曜日", "火")
+               , ("水曜日", "水") , ("木曜日", "木")
+               , ("金曜日", "金") , ("土曜日", "土")]
+             , months         =
+               [let m = (show x) ++ "月" in (m, m) | x <- [1..12]]
              , dateTimeFmt    = ""
              , dateFmt        = ""
              , timeFmt        = ""
@@ -69,24 +71,21 @@ utcToICS utc
   | utctDayTime utc == 0 = formatTime jpTimeLocale "%Y%m%d" utc
   | otherwise = formatTime jpTimeLocale "%Y%m%dT%H%M%S" utc
 
-orgNodetoVEVENT :: String -> OrgElement -> OrgNode -> VEVENT
-orgNodetoVEVENT path timestamp node =
-  VEVENT { vstarttime = begin timestamp
-         , vendtime   = end timestamp
-         , vtitle     = node ~~> title
-         , vlocation  = location node
-         , vdesc      = path <> description node
-         }
-
-veventList :: OrgNode -> [VEVENT]
-veventList node =
-  concatMap (\(path, n) ->
-               map (\time -> orgNodetoVEVENT path time n) (timestamps n)) collecter
+titleToVEVENT :: OrgTitle -> [VEVENT]
+titleToVEVENT a = map (makeVEVENT a) $ otimestamps a
   where
-    collecter = collectNodeList filf (Just node)
-    filf n    = (hasAliveTime n) && (notTODO n)
+    makeVEVENT ttl time' =
+      VEVENT { vstarttime = obegin time'
+             , vendtime   = oend time'
+             , vtitle     = otitle ttl
+             , vlocation  = Nothing
+             , vdesc      = "" }
 
-nodeToVCalendar :: OrgNode -> VCalendar
+veventList :: Node OrgTitle -> [VEVENT]
+veventList node =
+  concatMap titleToVEVENT $ nodeCollectList normalFilter node
+
+nodeToVCalendar :: Node OrgTitle -> VCalendar
 nodeToVCalendar = VCalendar . veventList
 
 vcalendarToString :: VCalendar -> String
@@ -101,21 +100,21 @@ vcalendarToString (VCalendar vevs) =
   where
     vevents = intercalate "\n" $ map show vevs
 
-postSample :: IO ()
-postSample = do
-  runReq defaultHttpConfig $ do
-    res <- req
-      POST
-      url
-      NoReqBody
-      ignoreResponse
-      mempty
-    return ()
-    -- liftIO $ print (responseBody res :: Value)
-      where
-        url :: Url 'Https
-        url = https "googleapis.com" /: "calendar" /: "v3" /: "calendars" /: "junnpit@gmail.com" /: "events" /: "import"
-        -- https://www.googleapis.com/calendar/v3/calendars/calendarId/events/import
-        -- params :: FormUrlEncodedParam
-        -- params =    "key1" =: ("value1" :: Text)
-        --             <> "key2" =: (2 :: Int)
+-- postSample :: IO ()
+-- postSample = do
+--   runReq defaultHttpConfig $ do
+--     res <- req
+--       POST
+--       url
+--       NoReqBody
+--       ignoreResponse
+--       mempty
+--     return ()
+--     -- liftIO $ print (responseBody res :: Value)
+--       where
+--         url :: Url 'Https
+--         url = https "googleapis.com" /: "calendar" /: "v3" /: "calendars" /: "junnpit@gmail.com" /: "events" /: "import"
+--         -- https://www.googleapis.com/calendar/v3/calendars/calendarId/events/import
+--         -- params :: FormUrlEncodedParam
+--         -- params =    "key1" =: ("value1" :: Text)
+--         --             <> "key2" =: (2 :: Int)

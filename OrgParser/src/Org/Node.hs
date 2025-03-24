@@ -3,21 +3,15 @@ module Org.Node
   (
     Node (..)
   , OrgTitle (..)
+  , OrgTimeStamp (..)
   , EQNode (..)
-  --   timestamps
-  -- , hasChildrenAliveTime
-  -- , hasAliveTime
-  -- , notTODO
-  -- , notChildrenTODO
-  -- , nodeToList
-  -- , collectNodeList
-  -- , addNode
-  -- , showTitle
-  -- , makeOrgNode
-  -- , location
-  -- , description
-  -- , (~~>)
-  -- , OrgNode (..)
+  , OrgValue (..)
+  , hasChildrenAliveTime
+  , notChildrenTODO
+  , addNode
+  , orgLineNode
+  , nodeCollectList
+  , normalFilter
   )
 where
 
@@ -25,7 +19,6 @@ import Org.Parse
 import Data.Maybe
 import Data.Time
 import Data.Either (rights)
--- import qualified Data.List as DL
 import Control.Monad.State
 
 data OrgTitle = OrgTitle { otitle      :: String
@@ -58,14 +51,6 @@ data Node a = Node a (Node a) (Node a)
             | None
             deriving  (Show, Eq, Foldable)
 
--- newtype NodeManip a b = Mp { runManip :: Node a -> Node b }
--- newtype NodeState s a = NodeState { runNode :: s -> (a, s)}
-
--- testTree :: Node Int
--- testTree = Node 20 (Node 200 None None)
---                    (Node 300 (Node 12 None None)
---                              (Node 100 None None))
-
 instance Functor Node where
   _ `fmap` None = None
   f `fmap` (Node a n c) = Node (f a) (f `fmap` n) (f `fmap` c)
@@ -77,6 +62,7 @@ instance Applicative Node where
   (Node a n c) <*> (Node a' n' c') =
     Node (a a') (n <*> n') (c <*> c')
 
+def :: OrgTitle
 def = OrgTitle { otitle      = mempty
                , olevel      = 1
                , otodo       = Nothing
@@ -117,11 +103,15 @@ instance Ord EQNode where
 -- childNode None = None
 -- childNode (Node _ _ c) = c
 
-nodeTitle :: Node OrgTitle -> String
-nodeTitle (Node el _ _) = otitle el
+nodeTitle :: Node OrgTitle -> OrgTitle
+nodeTitle (Node el _ _) = el
 
-nodeLevel :: Node OrgTitle -> Int
-nodeLevel (Node el _ _) = olevel el
+nodeTitleString :: Node OrgTitle -> String
+nodeTitleString (Node el _ _) = otitle el
+
+nodeLevel :: Node OrgTitle -> Maybe Int
+nodeLevel (Node el _ _) = Just $ olevel el
+nodeLevel None          = Nothing
 
 nodeTimeStamps :: Node OrgTitle -> [OrgTimeStamp]
 nodeTimeStamps = foldMap ((`mappend` []) . otimestamps)
@@ -134,24 +124,27 @@ hasAliveTime = not . null. filter notCloseOrInActive . nodeTimeStamps
       ((odatetype timestamp) /= Closed) && ((oactive timestamp) /= False)
 
 hasChildrenAliveTime :: Node OrgTitle -> Bool
+hasChildrenAliveTime None               = False
 hasChildrenAliveTime o@(Node _ _ None)  = hasAliveTime o
 hasChildrenAliveTime o@(Node _ _ child) =
   (hasAliveTime o) || (hasAliveTime child)
 
 notTODO :: Node OrgTitle -> Bool
 notTODO None = False
-notTODO (Node title _ _) = not . isJust . otodo $ title
+notTODO (Node title' _ _) = not . isJust . otodo $ title'
 
 notChildrenTODO :: Node OrgTitle -> Bool
+notChildrenTODO None               = False
 notChildrenTODO (Node name _ None) = not $ isJust $ otodo name
 notChildrenTODO o@(Node _ _ child) = notTODO o || notChildrenTODO child
 
--- nodeLocation :: OrgNodeElement -> Maybe String
--- nodeLocation = loop . children . element
---   where
---     loop [] = Nothing
---     loop ((OrgProperty ("LOCATION", val)):_) = Just val
---     loop (_:xs) = loop xs
+nodeLocation :: Node OrgTitle -> Maybe String
+nodeLocation None = Nothing
+nodeLocation node = loop $ oproperties $ nodeTitle node
+  where
+    loop [] = Nothing
+    loop ((OrgProperty ("LOCATION", val)):_) = Just val
+    loop (_:xs) = loop xs
 
 -- nodeDescription :: OrgNodeElement -> String
 -- nodeDescription = loop mempty . children . element
@@ -163,29 +156,30 @@ testNode1, testNode2 :: Node OrgTitle
 testNode1 = pure $ def { olevel = 1, otitle = "node1" }
 testNode2 = pure $ def { olevel = 2, otitle = "node2" }
 
+testTitles :: [OrgTitle]
 testTitles = [def {olevel=1}, def {olevel=2}, def {olevel=2}, def {olevel=3}]
 -- nextNode :: a -> OrgNode a
-addNode :: (Node OrgTitle) -> (Node OrgTitle) -> (Node OrgTitle)
-addNode title None = title
-addNode None title = title
-addNode title (Node a n@(Node _ _ _) c) = Node a (addNode title n) c
-addNode title n@(Node a None c)
-  | EQN title == EQN n = Node a title c
-  | EQN title > EQN n  = Node a None (addNode title c)
-  | otherwise  = error "must not happen"
 
--- addNodeWithPath :: (Node OrgTitle) -> (Node OrgTitle) -> (Node OrgTitle)
--- addNodeWithPath newnode oldnode = loop newnode oldnode []
---   where
---     addPath path title = undefined
---     loop n None _      = n
---     loop None n _      = n
---     loop n (Node a next@(Node _ _ _) c) path
---                        = Node a (loop n next path) c
---     loop n o@(Node a None c) path
---       | EQN n == EQN o = Node a (addPath path node) c
---       | EQN n > EQN o  = Node a None (loop n c (otitle a : path))
---       | otherwise  = error "must not happen"
+addNode :: (Node OrgTitle) -> (Node OrgTitle) -> (Node OrgTitle)
+addNode newn oldn = loop newn oldn `evalState` mempty
+  where
+    setPath node = do
+      path <- get
+      let t1 = nodeTitle node
+      return $ pure $ t1 { opath = (nodeTitleString node) : path }
+    loop :: (Node OrgTitle) -> (Node OrgTitle) -> State [String] (Node OrgTitle)
+    loop n None    = setPath n
+    loop None n    = return n
+    loop n (Node a next@(Node _ _ _) c)
+                   = do { nex' <- loop n next; return $ Node a nex' c }
+    loop n o@(Node a None c)
+      | EQN n == EQN o = do { nex <- setPath n; return $ Node a nex c }
+      | EQN n > EQN o  = do
+          path <- get
+          let newpath = nodeTitleString o
+          put (newpath : path)
+          Node a None <$> loop n c
+      | otherwise = error "must not happen"
 
 element2Node :: Element -> Node OrgTitle -> Node OrgTitle
 element2Node el node =
@@ -197,7 +191,8 @@ element2Node el node =
                         , otags       = tags'
                         , otimestamps = map parser2TimeStamp timestamps'
                         , oparagraph  = mempty
-                        , oproperties = mempty} in
+                        , oproperties = mempty
+                        , opath       = mempty } in
         addNode (pure ot) node
     p@(ParserTimeStamp _ _ _ _)
                      -> setNodeValue (ValueTimeStamp (parser2TimeStamp p)) node
@@ -211,6 +206,7 @@ element2Node el node =
                    , odatetype = datetype'
                    , oactive   = active'
                    , oend      = end'}
+    parser2TimeStamp _ = error "must not happen"
 
 setNodeValue :: OrgValue -> Node OrgTitle -> Node OrgTitle
 setNodeValue _ None = None
@@ -229,21 +225,16 @@ setNodeValue v (Node a n c@(Node _ _ _)) = Node a n (setNodeValue v c)
 
 orgLineNode :: [String] -> Node OrgTitle
 orgLineNode orglines =
-  let (x:xs) = concat $ rights $ map orgLineParse orglines in
-    case x of
-      ParserTitle _ _ _ _ _ -> foldr element2Node (element2Node x None) (reverse xs)
-      _ -> error "TopLine must be title line"
+  let parsed = concat $ rights $ map orgLineParse orglines in
+  foldr element2Node None (reverse parsed)
 
--- collectNodeList ::
---   (OrgElement -> Bool) -> OrgNodeElement -> [(String, OrgElement)]
--- collectNodeList f = fst . foldr core ([], "")
---   where
---     core el seed@(ret, path)
---       | f el = let newpath = path ++ "/" ++ title el in
---                  ((newpath, el):ret, newpath)
---       | otherwise = 
+nodeCollectList :: (Node OrgTitle -> Bool) -> Node OrgTitle -> [OrgTitle]
+nodeCollectList _ None = []
+nodeCollectList f node@(Node a n c) =
+  let second = nodeCollectList f n ++ nodeCollectList f c in
+  case f node of
+    True  -> a : second
+    False -> second
 
--- orgTitleOrder :: OrgElement -> OrgElement -> Maybe Ordering
--- orgTitleOrder t1 t2
---   | isTitle t1 && isTitle t2 = Just (level t1 `compare` level t2)
---   | otherwise = Nothing
+normalFilter :: Node OrgTitle -> Bool
+normalFilter node = (hasAliveTime node) && (notTODO node)
