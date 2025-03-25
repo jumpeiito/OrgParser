@@ -26,7 +26,7 @@ data OrgTitle = OrgTitle { otitle      :: String
                          , otodo       :: Maybe String
                          , otags       :: [String]
                          , otimestamps :: [OrgTimeStamp]
-                         , oparagraph  :: [String]
+                         , oparagraph  :: String
                          , oproperties :: [OrgProperty]
                          , opath       :: [String]
                          }
@@ -49,7 +49,7 @@ data OrgValue = ValueTimeStamp OrgTimeStamp
 
 data Node a = Node a (Node a) (Node a)
             | None
-            deriving  (Show, Eq, Foldable)
+            deriving  (Show, Eq)
 
 instance Functor Node where
   _ `fmap` None = None
@@ -61,6 +61,10 @@ instance Applicative Node where
   _ <*> None = None
   (Node a n c) <*> (Node a' n' c') =
     Node (a a') (n <*> n') (c <*> c')
+
+instance Foldable Node where
+  foldMap _ None = mempty
+  foldMap f (Node a n c) = f a <> foldMap f c <> foldMap f n
 
 def :: OrgTitle
 def = OrgTitle { otitle      = mempty
@@ -95,13 +99,29 @@ instance Ord EQNode where
   EQN _    `compare` EQN None  = GT
   (EQN n1) `compare` (EQN n2)  = nodeLevel n1 `compare` nodeLevel n2
 
--- nextNode :: Node a -> Node a
--- nextNode None = None
--- nextNode (Node _ n _) = n
+class FromParser a where
+  fromParse :: Element -> a
 
--- childNode :: Node a -> Node a
--- childNode None = None
--- childNode (Node _ _ c) = c
+instance FromParser OrgTitle where
+  fromParse (ParserTitle ti l to tgs timestamp') =
+    let ParserTags tag = tgs in
+    OrgTitle { otitle      = ti
+             , olevel      = l
+             , otodo       = to
+             , otags       = tag
+             , otimestamps = map fromParse timestamp'
+             , oparagraph  = mempty
+             , oproperties = mempty
+             , opath       = mempty }
+  fromParse _ = error "must not happen"
+
+instance FromParser OrgTimeStamp where
+  fromParse (ParserTimeStamp b d a e) =
+      OrgTimeStamp { obegin    = b
+                   , odatetype = d
+                   , oactive   = a
+                   , oend      = e }
+  fromParse _ = error "must not happen"
 
 nodeTitle :: Node OrgTitle -> OrgTitle
 nodeTitle (Node el _ _) = el
@@ -163,11 +183,12 @@ testTitles = [def {olevel=1}, def {olevel=2}, def {olevel=2}, def {olevel=3}]
 addNode :: (Node OrgTitle) -> (Node OrgTitle) -> (Node OrgTitle)
 addNode newn oldn = loop newn oldn `evalState` mempty
   where
+    setPath :: Node OrgTitle -> State [String] (Node OrgTitle)
+    loop :: (Node OrgTitle) -> (Node OrgTitle) -> State [String] (Node OrgTitle)
     setPath node = do
       path <- get
       let t1 = nodeTitle node
       return $ pure $ t1 { opath = (nodeTitleString node) : path }
-    loop :: (Node OrgTitle) -> (Node OrgTitle) -> State [String] (Node OrgTitle)
     loop n None    = setPath n
     loop None n    = return n
     loop n (Node a next@(Node _ _ _) c)
@@ -176,37 +197,21 @@ addNode newn oldn = loop newn oldn `evalState` mempty
       | EQN n == EQN o = do { nex <- setPath n; return $ Node a nex c }
       | EQN n > EQN o  = do
           path <- get
-          let newpath = nodeTitleString o
-          put (newpath : path)
+          put (nodeTitleString o : path)
           Node a None <$> loop n c
       | otherwise = error "must not happen"
+
 
 element2Node :: Element -> Node OrgTitle -> Node OrgTitle
 element2Node el node =
   case el of
-    ParserTitle ti l to (ParserTags tags') timestamps' ->
-      let ot = OrgTitle { otitle      = ti
-                        , olevel      = l
-                        , otodo       = to
-                        , otags       = tags'
-                        , otimestamps = map parser2TimeStamp timestamps'
-                        , oparagraph  = mempty
-                        , oproperties = mempty
-                        , opath       = mempty } in
-        addNode (pure ot) node
-    p@(ParserTimeStamp _ _ _ _)
-                     -> setNodeValue (ValueTimeStamp (parser2TimeStamp p)) node
-    ParserTags t     -> setNodeValue (ValueTags t) node
-    ParserProperty p -> setNodeValue (ValueProperty (OrgProperty p)) node
-    ParserLink d e   -> setNodeValue (ValueLink d e) node
-    ParserOther s    -> setNodeValue (ValueOther s) node
-  where
-    parser2TimeStamp (ParserTimeStamp begin' datetype' active' end') =
-      OrgTimeStamp { obegin    = begin'
-                   , odatetype = datetype'
-                   , oactive   = active'
-                   , oend      = end'}
-    parser2TimeStamp _ = error "must not happen"
+    ParserTitle _ _ _ _ _   -> addNode (pure $ fromParse el) node
+    ParserTimeStamp _ _ _ _ -> setNodeValue (ValueTimeStamp (fromParse el)) node
+    ParserTags t            -> setNodeValue (ValueTags t) node
+    ParserProperty p        -> setNodeValue (ValueProperty (OrgProperty p)) node
+    ParserLink d e          -> setNodeValue (ValueLink d e) node
+    ParserOther s           -> setNodeValue (ValueOther s) node
+    ParserLineBreak         -> setNodeValue (ValueOther "\\r\\n\n") node
 
 setNodeValue :: OrgValue -> Node OrgTitle -> Node OrgTitle
 setNodeValue _ None = None
@@ -217,7 +222,7 @@ setNodeValue v (Node a None None) =
           ValueTags t      -> let current = otags a       in a { otags = t ++ current }
           ValueProperty op -> let current = oproperties a in a { oproperties = op:current }
        -- ValueLink s      -> let current = oparagraph a  in a { oparagraph = s:current }
-          ValueOther s     -> let current = oparagraph a  in a { oparagraph = s:current }
+          ValueOther s     -> let current = oparagraph a  in a { oparagraph = current <> s }
           _                -> a
   in pure orgtitle
 setNodeValue v (Node a n@(Node _ _ _) c) = Node a (setNodeValue v n) c
@@ -231,10 +236,11 @@ orgLineNode orglines =
 nodeCollectList :: (Node OrgTitle -> Bool) -> Node OrgTitle -> [OrgTitle]
 nodeCollectList _ None = []
 nodeCollectList f node@(Node a n c) =
-  let second = nodeCollectList f n ++ nodeCollectList f c in
+  let second = nodeCollectList f c ++ nodeCollectList f n in
   case f node of
     True  -> a : second
     False -> second
 
 normalFilter :: Node OrgTitle -> Bool
 normalFilter node = (hasAliveTime node) && (notTODO node)
+

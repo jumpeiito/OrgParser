@@ -46,6 +46,7 @@ data Element = ParserTitle { title      :: String
              | ParserTags [String]
              | ParserProperty (String, String)
              | ParserLink Destination (Maybe Explanation)
+             | ParserLineBreak
              | ParserOther String
                    deriving (Show, Eq)
 
@@ -172,6 +173,12 @@ orgLinkParse = do
       return (ParserLink link (Just expl))
 -- -- ---link-----------------------------------------------------
 
+-- -- ---lineBreak------------------------------------------------
+orgLineBreakParse :: Parser Element
+orgLineBreakParse = do
+  string "# linebreak" >> return ParserLineBreak
+-- -- ---lineBreak------------------------------------------------
+
 -- -- ---line-----------------------------------------------------
 orgTitleLineCoreParse :: Parser [Element]
 orgTitleLineCoreParse = do
@@ -198,10 +205,15 @@ orgPropertyLineCoreParse :: Parser [Element]
 orgPropertyLineCoreParse = do
   (:) <$> orgPropertyParse <*> return []
 
+orgLineBreakCoreParse :: Parser [Element]
+orgLineBreakCoreParse = do
+  (:) <$> orgLineBreakParse <*> return []
+
 orgLineCoreParse :: Parser [Element]
 orgLineCoreParse = do
   try orgTitleLineCoreParse
   <|> orgPropertyLineCoreParse
+  <|> orgLineBreakCoreParse
   <|> orgOtherLineCoreParse
 
 orgLineParse :: String -> Either ParseError [Element]
@@ -220,3 +232,4 @@ manyTill' p pend = loop
   where
     loop = do { _ <- lookAhead pend; return [] }
            <|> do { x <- p; xs <- loop; return (x:xs)}
+

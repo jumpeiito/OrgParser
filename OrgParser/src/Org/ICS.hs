@@ -100,21 +100,21 @@ vcalendarToString (VCalendar vevs) =
   where
     vevents = intercalate "\n" $ map show vevs
 
--- postSample :: IO ()
--- postSample = do
---   runReq defaultHttpConfig $ do
---     res <- req
---       POST
---       url
---       NoReqBody
---       ignoreResponse
---       mempty
---     return ()
+postSample :: IO ()
+postSample = do
+  runReq defaultHttpConfig $ do
+    res <- req
+      POST
+      url
+      NoReqBody
+      ignoreResponse
+      mempty
+    return ()
 --     -- liftIO $ print (responseBody res :: Value)
---       where
---         url :: Url 'Https
---         url = https "googleapis.com" /: "calendar" /: "v3" /: "calendars" /: "junnpit@gmail.com" /: "events" /: "import"
---         -- https://www.googleapis.com/calendar/v3/calendars/calendarId/events/import
---         -- params :: FormUrlEncodedParam
---         -- params =    "key1" =: ("value1" :: Text)
---         --             <> "key2" =: (2 :: Int)
+      where
+        url :: Url 'Https
+        url = https "googleapis.com" /: "calendar" /: "v3" /: "calendars" /: "junnpit@gmail.com" /: "events" /: "import"
+        -- https://www.googleapis.com/calendar/v3/calendars/calendarId/events/import
+        -- params :: FormUrlEncodedParam
+        -- params =    "key1" =: ("value1" :: Text)
+        --             <> "key2" =: (2 :: Int)

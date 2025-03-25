@@ -27,6 +27,7 @@ library
                      , shakespeare
                      , blaze-html
                      , req
+                     , containers
   default-language:    Haskell2010
   ghc-options:         -Wall
                        -Wcompat
@@ -48,6 +49,7 @@ executable OrgParser
                      , mtl
                      , shakespeare
                      , blaze-html
+                     , containers
                      -- , req
   default-language:    Haskell2010
   ghc-options:         -Wall
@@ -77,6 +79,7 @@ test-suite OrgParser-test
                      , parsec
                      , time
                      , mtl
+                     , containers
                      -- , req
   default-language:   Haskell2010
   ghc-options:         -Wall
