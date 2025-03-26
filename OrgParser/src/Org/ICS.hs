@@ -15,6 +15,10 @@ import  Data.Maybe              (fromMaybe)
 import  Data.List               (intercalate)
 import  Data.Time
 import  Data.Time.Format
+import  Data.Aeson
+import  Data.Aeson.Types
+import  qualified Data.Map.Strict as M
+import  Control.Monad.IO.Class (liftIO)
 import  Network.HTTP.Req
 import  Org.Parse
 import  Org.Node
@@ -106,15 +110,12 @@ postSample = do
     res <- req
       POST
       url
-      NoReqBody
-      ignoreResponse
+      (ReqBodyJson body)
+      jsonResponse
       mempty
-    return ()
---     -- liftIO $ print (responseBody res :: Value)
+    liftIO $ print (responseBody res :: Value)
       where
         url :: Url 'Https
-        url = https "googleapis.com" /: "calendar" /: "v3" /: "calendars" /: "junnpit@gmail.com" /: "events" /: "import"
-        -- https://www.googleapis.com/calendar/v3/calendars/calendarId/events/import
-        -- params :: FormUrlEncodedParam
-        -- params =    "key1" =: ("value1" :: Text)
-        --             <> "key2" =: (2 :: Int)
+        url = https "www.googleapis.com" /: "calendar" /: "v3" /: "calendars" /: "primary" /: "events"
+        -- https://www.googleapis.com/calendar/v3/calendars/primary/events
+        body = toJSON $ M.fromList ([("key", "AIzaSyAe-ptJR-3mvcAEfK3EJh5_pyidHEGE7G8")] :: [(String, String)])

@@ -50,14 +50,14 @@ jMaruNum = M.fromList [(1, "①"), (2, "②"), (3, "③"), (4, "④"), (5, "⑤"
 
 instance Show YamlLine where
   show (YL counter a)
-    | olevel a == 1 = bracket 1 mempty   mempty                 mempty
-    | olevel a == 2 = bracket 2 mempty   (jNum M.! counter)     "．"
-    | olevel a == 3 = bracket 3 "　"     (jMaruNum M.! counter) "　"
-    | olevel a == 4 = bracket 4 "　　"   (jNum M.! counter)     "）"
-    | olevel a == 5 = bracket 5 "　　　" "・"                   mempty
+    | olevel a == 1 = bracket 1 mempty                 mempty
+    | olevel a == 2 = bracket 2 (jNum M.! counter)     "．"
+    | olevel a == 3 = bracket 3 (jMaruNum M.! counter) "　"
+    | olevel a == 4 = bracket 4 (jNum M.! counter)     "）"
+    | olevel a == 5 = bracket 5 "・"                   mempty
     where
-      bracket lv spaces titlen after =
-        concat ["- [", show lv, ", ", "\"", spaces, titlen
+      bracket lv titlen after =
+        concat ["- [", show lv, ", ", "\"", titlen
                , after, otitle a, "\", \"", oparagraph a, "\"]"]
 
 addCounter :: Int -> M.Map Int Int -> M.Map Int Int
@@ -69,7 +69,8 @@ addCounter key m
 
 testDocument :: IO ()
 testDocument = do
-  contents <- lines <$> readFile "C:/users/jumpei/Documents/home/OrgFiles/2025議案書.org"
+  -- contents <- lines <$> readFile "C:/users/jumpei/Documents/home/OrgFiles/2025議案書.org"
+  contents <- lines <$> readFile "E:/Dropbox/2025議案書.org"
   let parsed = nodeCollectList (const True) $ orgLineNode contents
   (`runStateT` M.empty) $ do
     forM_ parsed $ \ttl -> do

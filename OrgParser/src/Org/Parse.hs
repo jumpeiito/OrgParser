@@ -19,13 +19,10 @@ module Org.Parse
   )
 where
 
-import Data.Char
 import Data.Time
 import Data.Maybe
-import Data.Either
 import Text.Parsec
 import Control.Monad
-import System.IO
 
 type Parser = Parsec String ()
 type Destination = String
@@ -233,3 +230,14 @@ manyTill' p pend = loop
     loop = do { _ <- lookAhead pend; return [] }
            <|> do { x <- p; xs <- loop; return (x:xs)}
 
+-- class PElement a where
+--   peParse :: String -> a
+
+-- stringPE :: Parser String
+-- stringPE = string "foo"
+
+-- intPE :: Parser Int
+-- intPE = string "12" >>= return . read
+
+-- testPE :: PElement a => String -> a
+-- testPE = parse (try stringPE <|> intPE) ""
