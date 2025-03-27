@@ -108,11 +108,11 @@ postSample :: IO ()
 postSample = do
   runReq defaultHttpConfig $ do
     res <- req
-      POST
-      url
-      (ReqBodyJson body)
-      jsonResponse
-      mempty
+           POST
+           url
+           (ReqBodyJson body)
+           jsonResponse
+           mempty
     liftIO $ print (responseBody res :: Value)
       where
         url :: Url 'Https

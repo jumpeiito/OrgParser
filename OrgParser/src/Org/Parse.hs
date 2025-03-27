@@ -20,6 +20,7 @@ module Org.Parse
 where
 
 import Data.Time
+import Data.Monoid
 import Data.Maybe
 import Text.Parsec
 import Control.Monad
@@ -47,34 +48,38 @@ data Element = ParserTitle { title      :: String
              | ParserOther String
                    deriving (Show, Eq)
 
+data RangeNum = Range Int Int Int
+
 -- ---tags-----------------------------------------------------
 orgTagsParse :: Parser Element
-orgTagsParse =
-  char ':' *> (mainParse <|> return (ParserTags []))
-  where
-    inner     = many1 (noneOf " :\t\n") <* lookAhead (char ':')
-    mainParse = do
-      x               <- inner
-      ParserTags loop <- orgTagsParse
-      return $ ParserTags (x:loop)
--- ---tags-----------------------------------------------------
+orgTagsParse = do
+  tagname <- char ':'
+             *> many1 (noneOf " :\t\n")
+             <* lookAhead (char ':')
+  ParserTags loop <- (try orgTagsParse <|> (return $ ParserTags []))
+  return $ ParserTags (tagname:loop)
+  -- ---tags-----------------------------------------------------
 
 -- ---time-----------------------------------------------------
+withRangeParse :: String -> Int -> Int -> Int -> Parser Int
+withRangeParse _ len s' e' = do
+  parsed <- read <$> count len digit
+  guard $ judgeRange $ Range parsed s' e'
+  return parsed
+
+judgeRange :: RangeNum -> Bool
+judgeRange (Range min' max' x)
+  | min' <= x && x <= max' = True
+  | otherwise = False
+
 orgTimeParse :: Parser (Int, Int)
-orgTimeParse = do
-  [h, m] <- map read <$> sequence [ count 2 digit <* char ':'
-                                  , count 2 digit]
-  guard $ h `rangep` (0, 24) && m `rangep` (0, 59)
-  return (h, m)
+orgTimeParse = (,) <$> withRangeParse "hour"   2 0 23
+                   <*> withRangeParse "minute" 2 0 59
 
 orgDateYMDParse :: Parser (Int, Int, Int)
-orgDateYMDParse = do
-  [y, m, d] <- map read <$> sequence [ count 4 digit <* char '-'
-                                     , count 2 digit <* char '-'
-                                     , count 2 digit]
-  guard $
-    y `rangep` (2024, 2099) && m `rangep` (1, 12) && d `rangep` (1, 31)
-  return (y, m, d)
+orgDateYMDParse = (,,) <$> withRangeParse "year"  4 2024 2099
+                       <*> withRangeParse "month" 2 1 12
+                       <*> withRangeParse "day"   2 1 31
 
 orgDateCoreParse :: Parser UTCTime
 orgDateCoreParse = do
@@ -86,10 +91,13 @@ orgDateCoreParse = do
 
 orgTimeStampParse :: Parser Element
 orgTimeStampParse = do
-  type'         <- anyHit (map try [schedule, deadline, closed]) <|> return Normal
+  type'         <- typeP
   (bool, time') <- anyHit [acore, icore]
-  end'          <- try (rangesep >> (Just . snd) <$> acore) <|> return Nothing
-  return $ ParserTimeStamp { begin = time', datetype = type', active = bool, end = end' }
+  end'          <- endTime
+  return $ ParserTimeStamp { begin    = time'
+                           , datetype = type'
+                           , active   = bool
+                           , end      = end' }
   where
     acore'   = between (char '<') (char '>') orgDateCoreParse
     icore'   = between (char '[') (char ']') orgDateCoreParse
@@ -99,11 +107,8 @@ orgTimeStampParse = do
     schedule = string "SCHEDULED: " >> return Scheduled
     deadline = string "DEADLINE: "  >> return Deadline
     closed   = string "CLOSED: "    >> return Closed
-
-rangep :: Int -> (Int, Int) -> Bool
-rangep target (low, high)
-  | low <= target && target <= high = True
-  | otherwise                       = False
+    typeP    = anyHit (map try [schedule, deadline, closed]) <|> return Normal
+    endTime  = try (rangesep >> (Just . snd) <$> acore) <|> return Nothing
 
 timeToDiffTime :: (Int, Int) -> DiffTime
 timeToDiffTime (h, m) =
@@ -118,11 +123,11 @@ anyHit _ = undefined
 -- ---title----------------------------------------------------
 orgTitleParse :: Parser Element
 orgTitleParse = do
-  stars  <- many1 (char '*') <* many1 space
-  todo'  <- try (Just <$> todokwds <* many1 space) <|> return Nothing
+  stars  <- orgStars
+  todo'  <- orgTODO <|> return Nothing
   _      <- try (indicate >> many1 space) <|> return mempty
   title' <- titlep
-  (g, t) <- probs <|> return (ParserTags [], mempty)
+  (g, t) <- stopper <|> return (ParserTags [], mempty)
   return $ ParserTitle { title      = title'
                        , level      = length stars
                        , todo       = todo'
@@ -130,30 +135,32 @@ orgTitleParse = do
                        , timestamps = t
                        }
   where
-    todokwds = choice $ map string ["TODO", "DONE", "WAIT", "PEND"]
-    indicate = char '[' >> many digit >>
+    orgStars     = many1 (char '*') <* many1 space
+    orgTODO      = try (Just <$> todokwds <* many1 space)
+    todokwds     = choice $ map string ["TODO", "DONE", "WAIT", "PEND"]
+    indicate     = char '[' >> many digit >>
                char '/' >> many digit >> char ']' >> return ()
-    coreF    = manyTill' anyToken
-    prob_time = do { time' <- orgTimeStampParse; return (ParserTags [], [time']) }
-    prob_tags = do { tags' <- orgTagsParse; return (tags', mempty) }
-    prob_both = do
+    untilStopper = manyTill' anyToken
+    stopper_time = do { time' <- orgTimeStampParse; return (ParserTags [], [time']) }
+    stopper_tags = do { tags' <- orgTagsParse; return (tags', mempty) }
+    stopper_both = do
       time' <- orgTimeStampParse <* many space
       tags' <- orgTagsParse
       return (tags', [time'])
-    probs = anyHit $ map try [ prob_both, prob_time, prob_tags ]
-    titlep = (try $ coreF probs) <|>  many anyChar
-    probabilities = map (try . coreF) [ prob_both, prob_time, prob_tags ]
-    coreP = do
-      anyHit probabilities <|> many anyChar
+    stopper      = anyHit $ map try [ stopper_both, stopper_time, stopper_tags ]
+    titlep       = (try $ untilStopper stopper) <|>  many anyChar
+    -- probabilities = map (try . coreF) [ prob_both, prob_time, prob_tags ]
+    -- coreP = do
+    --   anyHit probabilities <|> many anyChar
 -- -- ---title----------------------------------------------------
 
 -- -- ---property-------------------------------------------------
 orgPropertyParse :: Parser Element
 orgPropertyParse = do
-  ParserProperty <$> ((,) <$> otherPname <*> otherPval)
+  ParserProperty <$> ((,) <$> pname <*> pval)
   where
-    otherPname = char ':' *> many1 (noneOf ":\n") <* char ':'
-    otherPval  = many space >> ((:) <$> (satisfy (/= ' ')) <*> many anyToken)
+    pname = char ':' *> many1 (noneOf ":\n") <* char ':'
+    pval  = many space >> ((:) <$> (satisfy (/= ' ')) <*> many anyToken)
 -- -- ---property-------------------------------------------------
 
 -- -- ---link-----------------------------------------------------
@@ -216,10 +223,6 @@ orgLineCoreParse = do
 orgLineParse :: String -> Either ParseError [Element]
 orgLineParse s = parse orgLineCoreParse "" s
 -- -- ---line-----------------------------------------------------
-
--- strip :: String -> String
--- strip = dropWhile isSpace . reverse . dropWhile isSpace . reverse
-
 mktime :: Integer -> Int -> Int -> Int -> Int -> UTCTime
 mktime y mo d h mi = UTCTime (fromGregorian y mo d) (timeToDiffTime (h, mi))
 
@@ -230,14 +233,3 @@ manyTill' p pend = loop
     loop = do { _ <- lookAhead pend; return [] }
            <|> do { x <- p; xs <- loop; return (x:xs)}
 
--- class PElement a where
---   peParse :: String -> a
-
--- stringPE :: Parser String
--- stringPE = string "foo"
-
--- intPE :: Parser Int
--- intPE = string "12" >>= return . read
-
--- testPE :: PElement a => String -> a
--- testPE = parse (try stringPE <|> intPE) ""

@@ -77,11 +77,6 @@ def = OrgTitle { otitle      = mempty
                , opath       = []
                }
 
--- instance Show (Node OrgTitle) where
---   show None = "N"
---   show (Node a n c) = "(O " ++ (show $ olevel a) ++ " " ++ show n ++ " " ++ show c ++ ")"
-
-
 newtype EQNode = EQN { getEQN :: Node OrgTitle }
   deriving Show
 
@@ -184,11 +179,11 @@ addNode :: (Node OrgTitle) -> (Node OrgTitle) -> (Node OrgTitle)
 addNode newn oldn = loop newn oldn `evalState` mempty
   where
     setPath :: Node OrgTitle -> State [String] (Node OrgTitle)
-    loop :: (Node OrgTitle) -> (Node OrgTitle) -> State [String] (Node OrgTitle)
     setPath node = do
       path <- get
       let t1 = nodeTitle node
       return $ pure $ t1 { opath = (nodeTitleString node) : path }
+    loop :: (Node OrgTitle) -> (Node OrgTitle) -> State [String] (Node OrgTitle)
     loop n None    = setPath n
     loop None n    = return n
     loop n (Node a next@(Node _ _ _) c)
@@ -205,13 +200,13 @@ addNode newn oldn = loop newn oldn `evalState` mempty
 element2Node :: Element -> Node OrgTitle -> Node OrgTitle
 element2Node el node =
   case el of
-    ParserTitle _ _ _ _ _   -> addNode (pure $ fromParse el) node
-    ParserTimeStamp _ _ _ _ -> setNodeValue (ValueTimeStamp (fromParse el)) node
-    ParserTags t            -> setNodeValue (ValueTags t) node
-    ParserProperty p        -> setNodeValue (ValueProperty (OrgProperty p)) node
-    ParserLink d e          -> setNodeValue (ValueLink d e) node
-    ParserOther s           -> setNodeValue (ValueOther s) node
-    ParserLineBreak         -> setNodeValue (ValueOther "\\r\\n\n") node
+    ParserTitle _ _ _ _ _   -> (pure $ fromParse el) `addNode` node
+    ParserTimeStamp _ _ _ _ -> ValueTimeStamp (fromParse el) `setNodeValue` node
+    ParserTags t            -> ValueTags t                   `setNodeValue` node
+    ParserProperty p        -> ValueProperty (OrgProperty p) `setNodeValue` node
+    ParserLink d e          -> ValueLink d e                 `setNodeValue` node
+    ParserOther s           -> ValueOther s                  `setNodeValue` node
+    ParserLineBreak         -> ValueOther "\\r\\n\n"         `setNodeValue` node
 
 setNodeValue :: OrgValue -> Node OrgTitle -> Node OrgTitle
 setNodeValue _ None = None
