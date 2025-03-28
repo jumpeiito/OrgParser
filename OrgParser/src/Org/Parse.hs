@@ -49,7 +49,6 @@ data Element = ParserTitle { title      :: String
                    deriving (Show, Eq)
 
 data RangeNum = Range Int Int Int
-
 -- ---tags-----------------------------------------------------
 orgTagsParse :: Parser Element
 orgTagsParse = do
@@ -149,9 +148,6 @@ orgTitleParse = do
       return (tags', [time'])
     stopper      = anyHit $ map try [ stopper_both, stopper_time, stopper_tags ]
     titlep       = (try $ untilStopper stopper) <|>  many anyChar
-    -- probabilities = map (try . coreF) [ prob_both, prob_time, prob_tags ]
-    -- coreP = do
-    --   anyHit probabilities <|> many anyChar
 -- -- ---title----------------------------------------------------
 
 -- -- ---property-------------------------------------------------
@@ -232,4 +228,3 @@ manyTill' p pend = loop
   where
     loop = do { _ <- lookAhead pend; return [] }
            <|> do { x <- p; xs <- loop; return (x:xs)}
-

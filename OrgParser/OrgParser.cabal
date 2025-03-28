@@ -30,6 +30,10 @@ library
                      , containers
                      , Win32
                      , aeson
+                     , bytestring
+                     , text
+                     , string-conversions
+                     , directory
   default-language:    Haskell2010
   ghc-options:         -Wall
                        -Wcompat

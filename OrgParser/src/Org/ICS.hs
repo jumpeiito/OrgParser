@@ -13,17 +13,24 @@ where
 
 import  Data.Maybe              (fromMaybe)
 import  Data.List               (intercalate)
+import  Data.Monoid
 import  Data.Time
 import  Data.Time.Format
+import  Data.Text               (Text (..))
+import  Data.String.Conversions
 import  Data.Aeson
 import  Data.Aeson.Types
 import  qualified Data.Map.Strict as M
+import  Control.Monad.Reader
 import  Control.Monad.IO.Class (liftIO)
 import  Network.HTTP.Req
 import  Org.Parse
 import  Org.Node
+import  System.Directory
 import  Text.Hamlet
 import  Text.Blaze.Html.Renderer.String
+import  qualified Data.ByteString.Lazy as B
+import  qualified Data.ByteString.Lazy.Internal as BI
 
 jpTimeLocale :: TimeLocale
 jpTimeLocale =
@@ -104,18 +111,46 @@ vcalendarToString (VCalendar vevs) =
   where
     vevents = intercalate "\n" $ map show vevs
 
+type Config = M.Map String String
+
+
+-- ["e:/Foo", "e:/Dropbox/access.json"]
+
+jsonFile :: [FilePath] -> IO (Maybe FilePath)
+jsonFile [] = return Nothing
+jsonFile (x:xs) = do
+  fp <- doesPathExist x
+  case fp of
+    True  -> return (Just x)
+    False -> return Nothing
+
+fromAccessJSON :: IO (Maybe Config)
+fromAccessJSON = do
+  jsonfile   <- jsonFile ["e:/Foo", "e:/Dropbox/access.json"]
+  bytestring <- B.readFile <$> jsonfile
+  return $ (decode <$> bytestring)
+
 postSample :: IO ()
 postSample = do
-  runReq defaultHttpConfig $ do
-    res <- req
-           POST
-           url
-           (ReqBodyJson body)
-           jsonResponse
-           mempty
-    liftIO $ print (responseBody res :: Value)
-      where
-        url :: Url 'Https
-        url = https "www.googleapis.com" /: "calendar" /: "v3" /: "calendars" /: "primary" /: "events"
-        -- https://www.googleapis.com/calendar/v3/calendars/primary/events
-        body = toJSON $ M.fromList ([("key", "AIzaSyAe-ptJR-3mvcAEfK3EJh5_pyidHEGE7G8")] :: [(String, String)])
+  json <- fromAccessJSON
+  case json of
+    Nothing -> return ()
+    Just configMap -> do
+      runReq defaultHttpConfig $ do
+        res <- req
+               POST
+               url
+               -- (ReqBodyJson body)
+               NoReqBody
+               jsonResponse
+               body
+        liftIO $ print (responseBody res :: Value)
+        where
+          url :: Url 'Https
+          url = https "www.googleapis.com" /: "calendar" /: "v3" /: "calendars" /: "primary" /: "events"
+              -- https://www.googleapis.com/calendar/v3/calendars/primary/events
+          -- body = toJSON $ oAuth2Bearer $ (configMap M.! "access_token")
+          atoken = convertString $ configMap M.! "refresh_token"
+          body = header "Authorization" ("Bearer " <> atoken)
+          -- header :: Option scheme
+          -- header = foldMap (uncurry (=:)) $ M.toList configMap
