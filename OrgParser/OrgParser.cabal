@@ -34,6 +34,8 @@ library
                      , text
                      , string-conversions
                      , directory
+                     , lens
+                     , exceptions
   default-language:    Haskell2010
   ghc-options:         -Wall
                        -Wcompat

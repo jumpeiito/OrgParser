@@ -12,7 +12,7 @@ module Org.Parse
   , orgLineParse
   -- , orgPropertyParse
   -- , orgLinkParse
-  -- , orgTitleLineCoreParse
+  , orgTitleLineCoreParse
   -- , orgOtherLineCoreParse
   -- , timeToDiffTime
   , mktime
@@ -63,7 +63,7 @@ orgTagsParse = do
 withRangeParse :: String -> Int -> Int -> Int -> Parser Int
 withRangeParse _ len s' e' = do
   parsed <- read <$> count len digit
-  guard $ judgeRange $ Range parsed s' e'
+  guard $ judgeRange $ Range s' e' parsed
   return parsed
 
 judgeRange :: RangeNum -> Bool
@@ -72,12 +72,12 @@ judgeRange (Range min' max' x)
   | otherwise = False
 
 orgTimeParse :: Parser (Int, Int)
-orgTimeParse = (,) <$> withRangeParse "hour"   2 0 23
+orgTimeParse = (,) <$> withRangeParse "hour"   2 0 23 <* char ':'
                    <*> withRangeParse "minute" 2 0 59
 
 orgDateYMDParse :: Parser (Int, Int, Int)
-orgDateYMDParse = (,,) <$> withRangeParse "year"  4 2024 2099
-                       <*> withRangeParse "month" 2 1 12
+orgDateYMDParse = (,,) <$> withRangeParse "year"  4 2024 2099 <* char '-'
+                       <*> withRangeParse "month" 2 1 12 <* char '-'
                        <*> withRangeParse "day"   2 1 31
 
 orgDateCoreParse :: Parser UTCTime
@@ -181,13 +181,13 @@ orgLineBreakParse = do
 
 -- -- ---line-----------------------------------------------------
 orgTitleLineCoreParse :: Parser [Element]
-orgTitleLineCoreParse = do
-  elements <- sequence [title' ,timestamp', tags']
-  return $ catMaybes elements
-  where
-    title'     = (Just <$> orgTitleParse)
-    timestamp' = (Just <$> orgTimeStampParse <* many space) <|> return Nothing
-    tags'      = (Just <$> orgTagsParse <|> return Nothing)
+orgTitleLineCoreParse = (:[]) <$> orgTitleParse
+  -- elements <- sequence [title' ,timestamp', tags']
+  -- return $ catMaybes elements
+  -- where
+  --   title'     = (Just <$> orgTitleParse)
+  --   timestamp' = (Just <$> orgTimeStampParse <* many space) <|> return Nothing
+  --   tags'      = (Just <$> orgTagsParse <|> return Nothing)
 
 orgOtherLineCoreParse :: Parser [Element]
 orgOtherLineCoreParse = do

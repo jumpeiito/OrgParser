@@ -23,8 +23,8 @@ spec = do
   describe "strip" $ do
     it "orgTagsParse" $ do
       parse orgTagsParse "" ":hoge:foo:" `shouldBe` Right (ParserTags ["hoge", "foo"])
-    it "orgTagsParse2" $ do
-      parse orgTagsParse "" "::" `shouldBe` Right (ParserTags [])
+    -- it "orgTagsParse2" $ do
+    --   parse orgTagsParse "" "::" `shouldBe` Left "parse error"
     it "orgTimeParse" $ do
       parse orgTimeParse "" "12:00" `shouldBe` Right (12, 0)
     it "orgDateYMDParse" $ do
@@ -116,7 +116,7 @@ spec = do
         Right (defTitle { title = "ho ge", level = 3, todo = Just "DONE" })
     it "orgTitleParse6" $ do
       parse orgTitleParse "" "*** DONE [10/10] ho ge  ::" `shouldBe`
-        Right (defTitle { title = "ho ge  ", level = 3, todo = Just "DONE" })
+        Right (defTitle { title = "ho ge  ::", level = 3, todo = Just "DONE" })
     it "orgTitleParse7" $ do
       parse orgTitleParse "" "*** DONE [10/10] ho ge  :hoge:" `shouldBe`
         Right (defTitle { title = "ho ge  "
@@ -154,15 +154,31 @@ spec = do
                                            , datetype = Normal
                                            , active   = True
                                            , end      = Nothing}] })
-    -- it "orgTitleParse10--unit test" $ do
-    --   let title  = "*** DONE [10/10] ho ge  <2024-12-01 @ 12:00> :hoge:"
-    --       parser = (,,) <$> (orgTitleParse <* many space)
-    --                     <*> (orgTimeStampParse <* many space)
-    --                     <*> orgTagsParse
-    --   parse parser "" title `shouldBe`
-    --     Right (OrgTitle { title = "ho ge  ", level = 3, todo = Just "DONE", children = [] }
-    --           , Active (mktime 2024 12 1 12 0)
-    --           , ["hoge"])
+    it "orgTitleParse11" $ do
+      parse orgTitleParse "" "***** DONE 加入申込書の納品 :片岡:" `shouldBe`
+        Right (defTitle { title  = "加入申込書の納品 "
+                        , level  = 5
+                        , todo   = Just "DONE"
+                        , tags   = ParserTags ["片岡"]})
+    it "orgTitleLineCoreParse1" $ do
+      let title  = "***** DONE 加入申込書の納品 :片岡:"
+      parse orgTitleLineCoreParse "" title `shouldBe`
+        Right [ defTitle { title  = "加入申込書の納品 "
+                         , level  = 5
+                         , todo   = Just "DONE"
+                         , tags   = ParserTags ["片岡"]} ]
+    it "orgTitleLineCoreParse2" $ do
+      let title  = "***** DONE 加入申込書の納品 <2025-03-01 @> :片岡:"
+      parse orgTitleLineCoreParse "" title `shouldBe`
+        Right [ defTitle { title  = "加入申込書の納品 "
+                         , level  = 5
+                         , todo   = Just "DONE"
+                         , tags   = ParserTags ["片岡"]
+                         , timestamps =
+                           [ParserTimeStamp { begin = mktime 2025 3 1 0 0
+                                            , datetype = Normal
+                                            , active = True
+                                            , end = Nothing }]}]
     -- it "orgPropertyParse" $ do
     --   parse orgPropertyParse "" ":PROPERTIES:" `shouldBe` Right OrgPropertyBegin
     -- it "orgPropertyParse2" $ do

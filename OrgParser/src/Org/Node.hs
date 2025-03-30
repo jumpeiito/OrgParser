@@ -6,16 +6,19 @@ module Org.Node
   , OrgTimeStamp (..)
   , EQNode (..)
   , OrgValue (..)
+  , DebugPrint (..)
   , hasChildrenAliveTime
   , notChildrenTODO
   , addNode
   , orgLineNode
   , nodeCollectList
   , normalFilter
+  , nodeToCalendarEvent
   )
 where
 
 import Org.Parse
+import Org.GoogleCalendar.Event
 import Data.Maybe
 import Data.Time
 import Data.Either (rights)
@@ -31,6 +34,18 @@ data OrgTitle = OrgTitle { otitle      :: String
                          , opath       :: [String]
                          }
   deriving (Show, Eq)
+
+newtype DebugPrint = Dp OrgTitle
+
+instance Show DebugPrint where
+  show (Dp ttl) =
+    let level = olevel ttl in
+    (take level $ repeat ' ')
+    ++ show level
+    ++ " : "
+    ++ otitle ttl
+    ++ " -> "
+    ++ show (otimestamps ttl)
 
 data OrgTimeStamp = OrgTimeStamp { obegin    :: UTCTime
                                  , odatetype :: OrgTimeStampType
@@ -108,7 +123,7 @@ instance FromParser OrgTitle where
              , oparagraph  = mempty
              , oproperties = mempty
              , opath       = mempty }
-  fromParse _ = error "must not happen"
+  fromParse k = error $ show k ++ " : must not happen"
 
 instance FromParser OrgTimeStamp where
   fromParse (ParserTimeStamp b d a e) =
@@ -116,7 +131,7 @@ instance FromParser OrgTimeStamp where
                    , odatetype = d
                    , oactive   = a
                    , oend      = e }
-  fromParse _ = error "must not happen"
+  fromParse k = error $ show k ++ " : must not happen"
 
 nodeTitle :: Node OrgTitle -> OrgTitle
 nodeTitle (Node el _ _) = el
@@ -128,8 +143,12 @@ nodeLevel :: Node OrgTitle -> Maybe Int
 nodeLevel (Node el _ _) = Just $ olevel el
 nodeLevel None          = Nothing
 
+childrenTimeStamps :: Node OrgTitle -> [OrgTimeStamp]
+childrenTimeStamps = foldMap ((`mappend` []) . otimestamps)
+
 nodeTimeStamps :: Node OrgTitle -> [OrgTimeStamp]
-nodeTimeStamps = foldMap ((`mappend` []) . otimestamps)
+nodeTimeStamps None = []
+nodeTimeStamps (Node title' _ _) = otimestamps title'
 
 hasAliveTime :: Node OrgTitle -> Bool
 hasAliveTime = not . null. filter notCloseOrInActive . nodeTimeStamps
@@ -155,7 +174,10 @@ notChildrenTODO o@(Node _ _ child) = notTODO o || notChildrenTODO child
 
 nodeLocation :: Node OrgTitle -> Maybe String
 nodeLocation None = Nothing
-nodeLocation node = loop $ oproperties $ nodeTitle node
+nodeLocation node = titleLocation $ nodeTitle node
+
+titleLocation :: OrgTitle -> Maybe String
+titleLocation = loop . oproperties
   where
     loop [] = Nothing
     loop ((OrgProperty ("LOCATION", val)):_) = Just val
@@ -172,7 +194,7 @@ testNode1 = pure $ def { olevel = 1, otitle = "node1" }
 testNode2 = pure $ def { olevel = 2, otitle = "node2" }
 
 testTitles :: [OrgTitle]
-testTitles = [def {olevel=1}, def {olevel=2}, def {olevel=2}, def {olevel=3}]
+testTitles = [def {olevel=1}, def {olevel=2}, def {olevel=3}, def {olevel=3}]
 -- nextNode :: a -> OrgNode a
 
 addNode :: (Node OrgTitle) -> (Node OrgTitle) -> (Node OrgTitle)
@@ -194,7 +216,7 @@ addNode newn oldn = loop newn oldn `evalState` mempty
           path <- get
           put (nodeTitleString o : path)
           Node a None <$> loop n c
-      | otherwise = error "must not happen"
+      | otherwise = error $ nodeTitleString n ++ " : must not happen"
 
 
 element2Node :: Element -> Node OrgTitle -> Node OrgTitle
@@ -239,3 +261,10 @@ nodeCollectList f node@(Node a n c) =
 normalFilter :: Node OrgTitle -> Bool
 normalFilter node = (hasAliveTime node) && (notTODO node)
 
+nodeToCalendarEvent :: OrgTimeStamp -> OrgTitle -> CalendarEvent
+nodeToCalendarEvent stamp ttl' =
+  eventDefault { eventDescription = Just $ oparagraph ttl'
+               , eventEnd = oend stamp
+               , eventStart = Just $ obegin stamp
+               , eventSummary = otitle ttl'
+               , eventLocation = titleLocation ttl' }
