@@ -14,27 +14,16 @@ module Org.ICS
   )
 where
 
-import  Data.Maybe              (fromMaybe)
-import  Data.List               (intercalate)
--- import  Data.Monoid
-import  Data.Text               (Text (..))
+import  Data.List               (sort)
+import  Data.Text               (Text)
 import  Data.Aeson
--- import  Data.Aeson.Types
-import  Data.Time
--- import  Data.Time.Format
 import  Data.String.Conversions
-import  qualified Data.Map.Strict as M
 import  Control.Monad.Reader
--- import  Control.Monad.IO.Class (liftIO)
 import  Network.HTTP.Req
-import  Org.Parse
-import  Org.Node
 import  Org.GoogleCalendar.Client
 import  Org.GoogleCalendar.Event
-import  System.Directory
-import  Text.Hamlet
-import  Text.Blaze.Html.Renderer.String
-import  qualified Data.ByteString.Lazy as B
+-- import  Text.Blaze.Html.Renderer.String
+-- import  qualified Data.ByteString.Lazy as B
 -- import  qualified Data.ByteString.Lazy.Internal as BI
 
 
@@ -103,25 +92,6 @@ import  qualified Data.ByteString.Lazy as B
 --   where
 --     vevents = intercalate "\n" $ map show vevs
 
-type Config = M.Map Text String
-
-
--- ["e:/Foo", "e:/Dropbox/access.json"]
-
--- jsonFile :: [FilePath] -> IO (Maybe FilePath)
--- jsonFile [] = return Nothing
--- jsonFile (x:xs) = do
---   fp <- doesPathExist x
---   case fp of
---     True  -> return (Just x)
---     False -> return Nothing
-
--- fromAccessJSON :: IO (Maybe Config)
--- fromAccessJSON = do
---   Just jsonfile   <- jsonFile [ "c:/Users/Jumpei/Documents/home/OrgFiles/access.json"
---                               , "e:/Dropbox/access.json"]
-  --   bytestring <- B.readFile jsonfile
---   return $ decode bytestring
 googleCalendarHttps :: Url 'Https
 googleCalendarHttps =
   https "www.googleapis.com"
@@ -136,7 +106,7 @@ headerAuthorization atoken =
   header "Authorization" ("Bearer " <> convertString atoken)
 
 getGoogleCalendarList :: IO [CalendarEvent]
-getGoogleCalendarList = loop Nothing []
+getGoogleCalendarList = sort <$> loop Nothing []
   where
     loop pageToken ret = do
       Calendar events np <- getGoogleCalendarPage pageToken

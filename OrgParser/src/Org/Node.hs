@@ -23,6 +23,7 @@ import Data.Maybe
 import Data.Time
 import Data.Either (rights)
 import Control.Monad.State
+import Control.Applicative ((<|>))
 
 data OrgTitle = OrgTitle { otitle      :: String
                          , olevel      :: Int
@@ -264,7 +265,7 @@ normalFilter node = (hasAliveTime node) && (notTODO node)
 nodeToCalendarEvent :: OrgTimeStamp -> OrgTitle -> CalendarEvent
 nodeToCalendarEvent stamp ttl' =
   eventDefault { eventDescription = Just $ oparagraph ttl'
-               , eventEnd = oend stamp
+               , eventEnd = oend stamp <|> Just (obegin stamp)
                , eventStart = Just $ obegin stamp
                , eventSummary = otitle ttl'
                , eventLocation = titleLocation ttl' }
