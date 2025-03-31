@@ -20,8 +20,6 @@ module Org.Parse
 where
 
 import Data.Time
-import Data.Monoid
-import Data.Maybe
 import Text.Parsec
 import Control.Monad
 

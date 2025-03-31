@@ -9,7 +9,9 @@ where
 
 import  Data.Maybe              (fromMaybe)
 import  Data.Aeson
+import  Data.Aeson.Types hiding (parse)
 import  Data.Time
+import  Data.Time.Clock
 import  Text.Parsec
 
 data CalendarEvent =
@@ -27,6 +29,8 @@ data CalendarEvent =
 
 eventDefault :: CalendarEvent
 eventDefault =
+  let fG = fromGregorian
+      sec = secondsToDiffTime 0 in
   CalendarEvent { eventCreated     = mempty
                 , eventDescription = Nothing
                 , eventEnd         = Nothing
@@ -38,17 +42,14 @@ eventDefault =
                 , eventUpdated     = mempty
                 , eventLocation    = Nothing }
 
+testEvent :: CalendarEvent
 testEvent =
   eventDefault { eventDescription = Just "test"
-               , eventEnd = Just $ UTCTime (fromGregorian 2025 3 31)
-                            -- (secondsToDiffTime (17 * 3600))
-                                           (secondsToDiffTime 0)
+               , eventEnd = Just $ UTCTime (fromGregorian 2025 4 1) (secondsToDiffTime 0)
                , eventEtag = "test etag"
                , eventIcalUID = "testUID"
                , eventID = "testID"
-               , eventStart = Just $ UTCTime (fromGregorian 2025 3 31)
-                              -- (secondsToDiffTime (8 * 3600))
-                                             (secondsToDiffTime 0)
+               , eventStart = Just $ UTCTime (fromGregorian 2025 3 31) (secondsToDiffTime 0)
                , eventSummary = "test summary"
                , eventLocation = Just "京建労会館" }
 
@@ -63,16 +64,25 @@ instance FromJSON CalendarEvent where
                                        <*> (v .: "summary")
                                        <*> (v .: "updated")
                                        <*> (v .:? "location")
+  parseJSON invalid    =
+    prependFailure "parsing CalendarEvent failed, "
+    (typeMismatch "Object" invalid)
+
 
 instance ToJSON CalendarEvent where
-  toJSON (CalendarEvent _ dsc _ etag _ _ st smry _ loc) =
-    object [ "etag"        .= etag
-           , "summary"     .= smry
-           , "description" .= dsc
-           , "location"    .= mempty `fromMaybe` loc
-           , "start"       .= googleTimeObject st
-           , "end"         .= googleTimeObject st
-           ]
+  toJSON (CalendarEvent _ dsc en etag _ _ st smry _ loc) =
+    case (timeObject <$> st <*> en) of
+      Nothing -> error "CalendarEvent ToJSON instance error"
+      Just (st', en') ->
+        object [ "etag"        .= etag
+               , "summary"     .= smry
+               , "description" .= dsc
+               , "location"    .= mempty `fromMaybe` loc
+                 -- to debug
+               , "start"       .= st'
+               , "end"         .= en'
+                 -- to debug
+               ]
 
 instance Show CalendarEvent where
   show (CalendarEvent _ _ e _ _ _ s summary _ _) =
@@ -89,6 +99,9 @@ data EventTime = EventTime (Maybe String) (Maybe String) deriving (Show, Eq)
 instance FromJSON EventTime where
   parseJSON (Object v) = EventTime <$> (v .:? "date")
                                    <*> (v .:? "dateTime")
+  parseJSON invalid    =
+    prependFailure "parsing EventTime failed, "
+    (typeMismatch "Object" invalid)
 
 dateParse :: Parsec String () UTCTime
 dateParse = do
@@ -125,17 +138,48 @@ toUTCTime (EventTime d dt) =
     Just (Right u) -> Just u
     _              -> Nothing
 
-googleTimeFormat :: UTCTime -> String
-googleTimeFormat utc'
-  | utctDayTime utc' == 0 = formatTime jpTimeLocale "%Y-%m-%d" utc'
-  | otherwise = formatTime jpTimeLocale "%Y-%m-%dT%H:%M:%S" utc'
+data GoogleTimeType = GDate | GDateTime deriving (Show, Eq)
 
-googleTimeObject :: Maybe UTCTime -> Value
-googleTimeObject Nothing = error "start or end time not set."
-googleTimeObject (Just utc')
-  | utctDayTime utc' == 0 =
-    object [ "date" .= googleTimeFormat utc'
-           , "timeZone" .= ("Asia/Tokyo" :: String)]
+gtypeToKey :: GoogleTimeType -> Key
+gtypeToKey GDate = "date"
+gtypeToKey GDateTime = "dateTime"
+
+googleTimeFormat :: UTCTime -> GoogleTimeType -> String
+googleTimeFormat utc' GDate = formatTime jpTimeLocale "%Y-%m-%d" utc'
+googleTimeFormat utc' GDateTime =
+  formatTime jpTimeLocale "%Y-%m-%dT%H:%M:%S" utc'
+
+-- startTimeObject :: Maybe UTCTime -> Value
+-- startTimeObject Nothing = error "start time not set."
+-- startTimeObject (Just utc')
+--   | utctDayTime utc' == 0 =
+--     object [ "date" .= googleTimeFormat utc'
+--            , "timeZone" .= ("Asia/Tokyo" :: String)]
+--   | otherwise =
+--     object [ "dateTime" .= googleTimeFormat utc'
+--            , "timeZone" .= ("Asia/Tokyo" :: String)]
+
+-- endTimeObject :: Maybe UTCTime -> Maybe UTCTime -> Value
+-- -- endTimeObject Nothing _ = error "start time not set"
+-- -- endTimeObject _ Nothing = error "end time not set"
+-- -- endTimeObject (Just st) (Just en)
+-- --   | 
+-- endTimeObject = undefined
+
+makeTimeObject :: GoogleTimeType -> UTCTime -> Value
+makeTimeObject GDate utc' =
+  object [ "date" .= googleTimeFormat utc' GDate ]
+makeTimeObject GDateTime utc' =
+  object [ "dateTime" .= googleTimeFormat utc' GDateTime
+         , "timeZone" .= ("Asia/Tokyo" :: String)]
+
+timeObject :: UTCTime -> UTCTime -> (Value, Value)
+timeObject st en
+  | (utctDay st /= utctDay en) =
+    let oneday = 24 * 60 * 60 in
+    ( makeTimeObject GDate st
+    , makeTimeObject GDate (oneday `addUTCTime` en))
+  | utctDayTime st == 0 =
+    (makeTimeObject GDate st, makeTimeObject GDate en)
   | otherwise =
-    object [ "dateTime" .= googleTimeFormat utc'
-           , "timeZone" .= ("Asia/Tokyo" :: String)]
+    (makeTimeObject GDateTime st, makeTimeObject GDateTime en)

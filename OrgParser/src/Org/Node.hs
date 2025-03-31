@@ -19,6 +19,7 @@ where
 
 import Org.Parse
 import Org.GoogleCalendar.Event
+import Data.List        (intercalate)
 import Data.Maybe
 import Data.Time
 import Data.Either (rights)
@@ -40,9 +41,9 @@ newtype DebugPrint = Dp OrgTitle
 
 instance Show DebugPrint where
   show (Dp ttl) =
-    let level = olevel ttl in
-    (take level $ repeat ' ')
-    ++ show level
+    let level' = olevel ttl in
+    (take level' $ repeat ' ')
+    ++ show level'
     ++ " : "
     ++ otitle ttl
     ++ " -> "
@@ -264,8 +265,21 @@ normalFilter node = (hasAliveTime node) && (notTODO node)
 
 nodeToCalendarEvent :: OrgTimeStamp -> OrgTitle -> CalendarEvent
 nodeToCalendarEvent stamp ttl' =
-  eventDefault { eventDescription = Just $ oparagraph ttl'
-               , eventEnd = oend stamp <|> Just (obegin stamp)
-               , eventStart = Just $ obegin stamp
-               , eventSummary = otitle ttl'
-               , eventLocation = titleLocation ttl' }
+  eventDefault { eventDescription = Just desc
+               , eventEnd         = oend stamp <|> Just (obegin stamp)
+               , eventStart       = Just $ obegin stamp
+               , eventSummary     = tailSpaceKill $ otitle ttl'
+               , eventLocation    = titleLocation ttl' }
+  where
+    paths = intercalate "/" $ reverse $ opath ttl'
+    desc = case oparagraph ttl' of
+             "" -> paths
+             pg -> paths ++ "\n" ++ pg
+
+tailSpaceKill :: String -> String
+tailSpaceKill = reverse . kloop . reverse
+  where
+    kloop [] = []
+    kloop (x:xs)
+      | x == ' ' = kloop xs
+      | otherwise = x : kloop xs

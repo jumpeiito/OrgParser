@@ -4,23 +4,21 @@ module Org.GoogleCalendar.Client
   (
     Client (..)
   , Oauth (..)
+  , WithClient
   , clientFromFile
   , aliveAccessToken
   )
 where
 
--- import  Control.Exception       (catch)
-import  Control.Monad
 import  Control.Monad.Catch
 import  Control.Monad.Reader
 import  Data.Maybe              (fromMaybe)
-import  Data.Text               (Text (..))
-import  qualified Data.Map.Strict     as M
+import  Data.Text               (Text)
 import  Data.Aeson
 import  Data.Aeson.Types
 import  qualified Data.ByteString.Lazy as B
-import  Data.String.Conversions
 import  Network.HTTP.Req
+import  System.Environment
 
 data Client =
   Client { clientID     :: String
@@ -45,8 +43,11 @@ data RefreshJSON =
      , rjTokenType   :: String }
   deriving (Show)
 
+testOauth :: Oauth
 testOauth = Oauth mempty mempty mempty mempty mempty 
+testClient :: Client
 testClient = Client mempty mempty testOauth mempty
+
 googleOauthTokenServer :: Url 'Https
 googleOauthTokenServer =
   https "accounts.google.com" /: "o" /: "oauth2" /: "token"
@@ -71,6 +72,9 @@ instance FromJSON Client where
                                 <*> (v .: "client_secret")
                                 <*> (v .: "oauth")
                                 <*> (v .: "permission_code")
+  parseJSON invalid    =
+    prependFailure "parsing Client failed, "
+    (typeMismatch "Object" invalid)
 
 instance FromJSON Oauth where
   parseJSON (Object v) = Oauth <$> (v .: "scope")
@@ -78,6 +82,9 @@ instance FromJSON Oauth where
                                <*> (v .: "access_token")
                                <*> (v .: "refresh_token")
                                <*> (v .: "redirect_uri")
+  parseJSON invalid    =
+    prependFailure "parsing Oauth failed, "
+    (typeMismatch "Object" invalid)
 
 instance FromJSON RefreshJSON where
   parseJSON (Object v) = RJ <$> (v .: "access_token")
@@ -85,30 +92,44 @@ instance FromJSON RefreshJSON where
                             <*> (v .: "refresh_token_expires_in")
                             <*> (v .: "scope")
                             <*> (v .: "token_type")
+  parseJSON invalid    =
+    prependFailure "parsing RefreshJSON failed, "
+    (typeMismatch "Object" invalid)
 
-clientFromFile :: FilePath -> IO Client
-clientFromFile fp = do
-  bytestring <- B.readFile fp
+type WithClient a = ReaderT Client IO a
+
+clientFile :: IO FilePath
+clientFile = getEnv "ORG" >>= return . (flip (++) "/access.json")
+
+clientFromFile :: IO Client
+clientFromFile = do
+  clientf    <- clientFile
+  bytestring <- B.readFile clientf
   return (testClient `fromMaybe` decode bytestring)
 
-clientWriteFile :: FilePath -> Client -> IO ()
-clientWriteFile fp c = B.writeFile fp (encode c)
+clientWriteFile :: Client -> IO ()
+clientWriteFile c = do
+  clientf <- clientFile
+  B.writeFile clientf (encode c)
 
-testFile = "c:/users/jumpei/Documents/home/OrgFiles/access.json"
-
-validateAccessToken :: ReaderT Client IO Bool
+validateAccessToken :: WithClient Bool
 validateAccessToken = do
   client <- ask
   let query = foldMap (uncurry (=:)) [("access_token", accessToken $ clientOauth client)]
   let url = (https "oauth2.googleapis.com" /: "tokeninfo" :: Url 'Https)
   runReq defaultHttpConfig $ do
-    res <- req GET url NoReqBody lbsResponse query
-    -- liftIO $ print (responseBody res)
+    _ <- req GET url NoReqBody lbsResponse query
     return True
   `catch`
-    (\(VanillaHttpException e) -> do { liftIO $ print e; return False} )
+    errorHandle
+  where
+    errorHandle err = case err of
+                        VanillaHttpException e -> do
+                          liftIO $ print e; return False
+                        JsonHttpException e -> do
+                          liftIO $ print e; return False
 
-refreshAccessToken :: ReaderT Client IO String
+refreshAccessToken :: WithClient String
 refreshAccessToken = do
   client <- ask
   let params =
@@ -125,10 +146,10 @@ refreshAccessToken = do
         let newAccessToken = rjaToken rjson
         let oldo = clientOauth client
         let newo = oldo { accessToken = newAccessToken }
-        liftIO $ clientWriteFile testFile (client { clientOauth = newo })
+        liftIO $ clientWriteFile (client { clientOauth = newo })
         return $ newAccessToken
 
-aliveAccessToken :: ReaderT Client IO String
+aliveAccessToken :: WithClient String
 aliveAccessToken = do
   valid <- validateAccessToken
   case valid of
