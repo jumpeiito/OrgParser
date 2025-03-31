@@ -41,9 +41,10 @@ testInsert :: IO ()
 testInsert = do
   node   <- testData
   client <- clientFromFile
+  aToken <- aliveAccessToken `runReaderT` client
   let collecter = nodeCollectList normalFilter node
   let byTime    = foldMap timestampVtitle collecter
   let events    = map (uncurry nodeToCalendarEvent) byTime
-  updateGoogleCalendar events `runReaderT` client
+  updateGoogleCalendar events `runReaderT` (aToken, client)
   where
     timestampVtitle title = map (flip (,) title) $ otimestamps title

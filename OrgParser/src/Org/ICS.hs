@@ -19,6 +19,8 @@ import  Control.Monad.Reader
 import  Network.HTTP.Req
 import  Org.GoogleCalendar.Client
 import  Org.GoogleCalendar.Event
+import  System.Environment   (getEnv)
+import  System.Directory     (getModificationTime)
 
 googleCalendarHttps :: Url 'Https
 googleCalendarHttps =
@@ -33,7 +35,7 @@ headerAuthorization :: String -> Option scheme
 headerAuthorization atoken =
   header "Authorization" ("Bearer " <> convertString atoken)
 
-getGoogleCalendarList :: WithClient [CalendarEvent]
+getGoogleCalendarList :: WithAccessToken [CalendarEvent]
 getGoogleCalendarList = sort <$> loop Nothing []
   where
     loop pageToken ret = do
@@ -42,9 +44,9 @@ getGoogleCalendarList = sort <$> loop Nothing []
         Just _  -> loop np (ret ++ events)
         Nothing -> return (ret ++ events)
 
-getGoogleCalendarPage :: Maybe String -> WithClient Calendar
+getGoogleCalendarPage :: Maybe String -> WithAccessToken Calendar
 getGoogleCalendarPage nextToken = do
-  aToken <- aliveAccessToken
+  aToken <- fst <$> ask
   runReq defaultHttpConfig $ do
     res <- req GET googleCalendarHttps NoReqBody jsonResponse
                (headerAuthorization aToken <> query)
@@ -58,7 +60,16 @@ getGoogleCalendarPage nextToken = do
                              <> pToken nextToken
         query           = foldMap (uncurry (=:)) options
 
-updateGoogleCalendar :: [CalendarEvent] -> WithClient ()
+-- notPushedCalendarEvents :: [CalendarEvent] -> WithAccessToken [CalendarEvent]
+notPushedCalendarEvents :: [CalendarEvent] -> WithAccessToken ()
+notPushedCalendarEvents events = do
+  gcalList <- getGoogleCalendarList
+  orgDir   <- liftIO $ getEnv "ORG"
+  let orgFile = orgDir ++ "/notes.org"
+  orgMtime <- liftIO $ getModificationTime orgFile
+  liftIO $ print orgMtime
+
+updateGoogleCalendar :: [CalendarEvent] -> WithAccessToken ()
 updateGoogleCalendar events = forM_ withC $ \(c, e) -> do
   liftIO $ putStr $ show c ++ "/" ++ show len ++ " "
   insertEvent e
@@ -66,12 +77,13 @@ updateGoogleCalendar events = forM_ withC $ \(c, e) -> do
     withC = zip [1..] events :: [(Int, CalendarEvent)]
     len = length events
 
-insertEvent :: CalendarEvent -> WithClient ()
+insertEvent :: CalendarEvent -> WithAccessToken ()
 insertEvent cal = do
-  aToken <- aliveAccessToken
+  aToken <- fst <$> ask
   runReq defaultHttpConfig $ do
-    _      <- req POST googleCalendarHttps (ReqBodyJson cal) ignoreResponse
-                  (headerAuthorization aToken)
+    res  <- req POST googleCalendarHttps (ReqBodyJson cal) jsonResponse
+              (headerAuthorization aToken)
+    liftIO $ print $ (responseBody res :: CalendarEvent)
     liftIO $ putStrLn $ eventSummary cal ++ " registered!"
 
 data Calendar = Calendar [CalendarEvent] (Maybe String) deriving (Show)
@@ -85,5 +97,6 @@ instance FromJSON Calendar where
 
 insertTest :: IO ()
 insertTest = do
-  c <- clientFromFile
-  insertEvent testEvent `runReaderT` c
+  c      <- clientFromFile
+  aToken <- aliveAccessToken `runReaderT` c
+  insertEvent testEvent `runReaderT` (aToken, c)

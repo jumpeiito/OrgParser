@@ -11,7 +11,7 @@ import  Data.Maybe              (fromMaybe)
 import  Data.Aeson
 import  Data.Aeson.Types hiding (parse)
 import  Data.Time
-import  Data.Time.Clock
+-- import  Data.Time.Clock
 import  Text.Parsec
 
 data CalendarEvent =
@@ -29,8 +29,8 @@ data CalendarEvent =
 
 eventDefault :: CalendarEvent
 eventDefault =
-  let fG = fromGregorian
-      sec = secondsToDiffTime 0 in
+  -- let fG = fromGregorian
+  --     sec = secondsToDiffTime 0 in
   CalendarEvent { eventCreated     = mempty
                 , eventDescription = Nothing
                 , eventEnd         = Nothing
@@ -78,10 +78,8 @@ instance ToJSON CalendarEvent where
                , "summary"     .= smry
                , "description" .= dsc
                , "location"    .= mempty `fromMaybe` loc
-                 -- to debug
                , "start"       .= st'
                , "end"         .= en'
-                 -- to debug
                ]
 
 instance Show CalendarEvent where
@@ -140,31 +138,10 @@ toUTCTime (EventTime d dt) =
 
 data GoogleTimeType = GDate | GDateTime deriving (Show, Eq)
 
-gtypeToKey :: GoogleTimeType -> Key
-gtypeToKey GDate = "date"
-gtypeToKey GDateTime = "dateTime"
-
 googleTimeFormat :: UTCTime -> GoogleTimeType -> String
 googleTimeFormat utc' GDate = formatTime jpTimeLocale "%Y-%m-%d" utc'
 googleTimeFormat utc' GDateTime =
   formatTime jpTimeLocale "%Y-%m-%dT%H:%M:%S" utc'
-
--- startTimeObject :: Maybe UTCTime -> Value
--- startTimeObject Nothing = error "start time not set."
--- startTimeObject (Just utc')
---   | utctDayTime utc' == 0 =
---     object [ "date" .= googleTimeFormat utc'
---            , "timeZone" .= ("Asia/Tokyo" :: String)]
---   | otherwise =
---     object [ "dateTime" .= googleTimeFormat utc'
---            , "timeZone" .= ("Asia/Tokyo" :: String)]
-
--- endTimeObject :: Maybe UTCTime -> Maybe UTCTime -> Value
--- -- endTimeObject Nothing _ = error "start time not set"
--- -- endTimeObject _ Nothing = error "end time not set"
--- -- endTimeObject (Just st) (Just en)
--- --   | 
--- endTimeObject = undefined
 
 makeTimeObject :: GoogleTimeType -> UTCTime -> Value
 makeTimeObject GDate utc' =

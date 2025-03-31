@@ -5,6 +5,7 @@ module Org.GoogleCalendar.Client
     Client (..)
   , Oauth (..)
   , WithClient
+  , WithAccessToken
   , clientFromFile
   , aliveAccessToken
   )
@@ -97,6 +98,7 @@ instance FromJSON RefreshJSON where
     (typeMismatch "Object" invalid)
 
 type WithClient a = ReaderT Client IO a
+type WithAccessToken a = ReaderT (String, Client) IO a
 
 clientFile :: IO FilePath
 clientFile = getEnv "ORG" >>= return . (flip (++) "/access.json")
