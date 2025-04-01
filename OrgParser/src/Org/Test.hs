@@ -24,11 +24,9 @@ testJsonPrint :: IO ()
 testJsonPrint = do
   node   <- testData
   client <- clientFromFile
-  let collecter = nodeCollectList normalFilter node
-  let byTime    = foldMap timestampVtitle collecter
   -- forM_ byTime $ \(tmsp, ttl) -> do
   --   putStrLn $ otitle ttl ++ ":" ++ show (oend tmsp)
-  let events    = map (uncurry nodeToCalendarEvent) byTime
+  let events    = nodeToCalendarEvents node
   forM_ events $ \e -> do
     putStrLn $ eventSummary e ++ (show (eventEnd e))
     print $ encode e
@@ -42,9 +40,5 @@ testInsert = do
   node   <- testData
   client <- clientFromFile
   aToken <- aliveAccessToken `runReaderT` client
-  let collecter = nodeCollectList normalFilter node
-  let byTime    = foldMap timestampVtitle collecter
-  let events    = map (uncurry nodeToCalendarEvent) byTime
+  let events    = nodeToCalendarEvents node
   updateGoogleCalendar events `runReaderT` (aToken, client)
-  where
-    timestampVtitle title = map (flip (,) title) $ otimestamps title

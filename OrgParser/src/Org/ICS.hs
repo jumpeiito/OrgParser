@@ -9,10 +9,11 @@ module Org.ICS
   )
 where
 
-import  Data.List               (sort)
+import  Data.List               (sort, (\\))
 import  Data.Text               (Text)
 import  Data.Aeson
 import  Data.Aeson.Types
+import  Data.Maybe              (catMaybes)
 import  Data.String.Conversions
 import  Control.Monad
 import  Control.Monad.Reader
@@ -21,6 +22,7 @@ import  Org.GoogleCalendar.Client
 import  Org.GoogleCalendar.Event
 import  System.Environment   (getEnv)
 import  System.Directory     (getModificationTime)
+import  Org.Node             (orgFileNode, nodeToCalendarEvents)
 
 googleCalendarHttps :: Url 'Https
 googleCalendarHttps =
@@ -61,13 +63,25 @@ getGoogleCalendarPage nextToken = do
         query           = foldMap (uncurry (=:)) options
 
 -- notPushedCalendarEvents :: [CalendarEvent] -> WithAccessToken [CalendarEvent]
-notPushedCalendarEvents :: [CalendarEvent] -> WithAccessToken ()
-notPushedCalendarEvents events = do
+notPushedCalendarEvents :: WithAccessToken [CalendarEvent]
+notPushedCalendarEvents = do
   gcalList <- getGoogleCalendarList
   orgDir   <- liftIO $ getEnv "ORG"
   let orgFile = orgDir ++ "/notes.org"
-  orgMtime <- liftIO $ getModificationTime orgFile
-  liftIO $ print orgMtime
+  events   <- liftIO (nodeToCalendarEvents <$> orgFileNode orgFile)
+  let almostEvent = map AlmostEqual events
+  let almostGcal  = map AlmostEqual gcalList
+  let almosts = almostEvent \\ almostGcal
+  forM_ (almostGcal \\ almostEvent) $ liftIO . print
+  return $ map runAlomost almosts
+
+-- differOrgGcal :: [CalendarEvent] -> [CalendarEvent] -> [CalendarEvent]
+-- differOrgGcal orgEV gcalEV =
+--   let gap = map AlmostEqual orgEV \\ map AlmostEqual gcalEV
+--       termP ev g = 
+
+  -- orgMtime <- liftIO $ getModificationTime orgFile
+  -- liftIO $ print orgMtime
 
 updateGoogleCalendar :: [CalendarEvent] -> WithAccessToken ()
 updateGoogleCalendar events = forM_ withC $ \(c, e) -> do
@@ -95,8 +109,15 @@ instance FromJSON Calendar where
     prependFailure "parsing Calendar failed, "
     (typeMismatch "Object" invalid)
 
-insertTest :: IO ()
-insertTest = do
-  c      <- clientFromFile
-  aToken <- aliveAccessToken `runReaderT` c
-  insertEvent testEvent `runReaderT` (aToken, c)
+-- insertTest :: IO ()
+-- insertTest = do
+--   c      <- clientFromFile
+--   aToken <- aliveAccessToken `runReaderT` c
+--   insertEvent testEvent `runReaderT` (aToken, c)
+
+testNotPush :: IO ()
+testNotPush = do
+  c <- clientFromFile
+  a <- aliveAccessToken `runReaderT` c
+  notPushedCalendarEvents `runReaderT` (a, c) >>= mapM_ print
+

@@ -2,6 +2,7 @@
 module Org.GoogleCalendar.Event
   (
     CalendarEvent (..)
+  , AlmostEqual (..)
   , eventDefault
   , testEvent
   )
@@ -11,7 +12,6 @@ import  Data.Maybe              (fromMaybe)
 import  Data.Aeson
 import  Data.Aeson.Types hiding (parse)
 import  Data.Time
--- import  Data.Time.Clock
 import  Text.Parsec
 
 data CalendarEvent =
@@ -27,10 +27,20 @@ data CalendarEvent =
                 , eventLocation    :: Maybe String }
   deriving (Eq)
 
+newtype AlmostEqual = AlmostEqual { runAlomost :: CalendarEvent }
+  deriving (Show)
+
+instance Eq AlmostEqual where
+  AlmostEqual (CalendarEvent _ dsc en _ _ _ st sumry _ loc) ==
+    AlmostEqual (CalendarEvent _ dsc' en' _ _ _ st' sumry' _ loc')
+    = (dsc == dsc')
+      && (en == en')
+      && (st == st')
+      && (sumry == sumry')
+      && (loc == loc')
+
 eventDefault :: CalendarEvent
 eventDefault =
-  -- let fG = fromGregorian
-  --     sec = secondsToDiffTime 0 in
   CalendarEvent { eventCreated     = mempty
                 , eventDescription = Nothing
                 , eventEnd         = Nothing

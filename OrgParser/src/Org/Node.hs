@@ -11,9 +11,10 @@ module Org.Node
   , notChildrenTODO
   , addNode
   , orgLineNode
+  , orgFileNode
   , nodeCollectList
   , normalFilter
-  , nodeToCalendarEvent
+  , nodeToCalendarEvents
   )
 where
 
@@ -252,6 +253,9 @@ orgLineNode orglines =
   let parsed = concat $ rights $ map orgLineParse orglines in
   foldr element2Node None (reverse parsed)
 
+orgFileNode :: FilePath -> IO (Node OrgTitle)
+orgFileNode fp = orgLineNode . lines <$> readFile fp
+
 nodeCollectList :: (Node OrgTitle -> Bool) -> Node OrgTitle -> [OrgTitle]
 nodeCollectList _ None = []
 nodeCollectList f node@(Node a n c) =
@@ -263,8 +267,8 @@ nodeCollectList f node@(Node a n c) =
 normalFilter :: Node OrgTitle -> Bool
 normalFilter node = (hasAliveTime node) && (notTODO node)
 
-nodeToCalendarEvent :: OrgTimeStamp -> OrgTitle -> CalendarEvent
-nodeToCalendarEvent stamp ttl' =
+titleToCalendarEvent :: OrgTimeStamp -> OrgTitle -> CalendarEvent
+titleToCalendarEvent stamp ttl' =
   eventDefault { eventDescription = Just desc
                , eventEnd         = oend stamp <|> Just (obegin stamp)
                , eventStart       = Just $ obegin stamp
@@ -275,6 +279,15 @@ nodeToCalendarEvent stamp ttl' =
     desc = case oparagraph ttl' of
              "" -> paths
              pg -> paths ++ "\n" ++ pg
+
+nodeToCalendarEvents :: Node OrgTitle -> [CalendarEvent]
+nodeToCalendarEvents node =
+  let titleList = nodeCollectList normalFilter node
+      byTime    = foldMap timestampVtitle titleList
+      timestampVtitle ttl' =
+                  map (flip (,) ttl') $ otimestamps ttl'
+  in
+  map (uncurry titleToCalendarEvent) byTime
 
 tailSpaceKill :: String -> String
 tailSpaceKill = reverse . kloop . reverse
