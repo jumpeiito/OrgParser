@@ -127,7 +127,7 @@ validateAccessToken = do
   where
     errorHandle err = case err of
                         VanillaHttpException e -> do
-                          liftIO $ print e; return False
+                          liftIO $ print "AccessToken to refresh"; return False
                         JsonHttpException e -> do
                           liftIO $ print e; return False
 

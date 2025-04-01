@@ -9,11 +9,11 @@ module Org.ICS
   )
 where
 
-import  Data.List               (sort, (\\))
+import  Data.List               (sort, elemIndex, (\\))
 import  Data.Text               (Text)
 import  Data.Aeson
 import  Data.Aeson.Types
-import  Data.Maybe              (catMaybes)
+import  Data.Maybe              (catMaybes, fromJust)
 import  Data.String.Conversions
 import  Control.Monad
 import  Control.Monad.Reader
@@ -23,6 +23,11 @@ import  Org.GoogleCalendar.Event
 import  System.Environment   (getEnv)
 import  System.Directory     (getModificationTime)
 import  Org.Node             (orgFileNode, nodeToCalendarEvents)
+
+data CalendarEventEqual = CeeAlmost CalendarEvent
+                        | CeeEdible CalendarEvent CalendarEvent
+                        | CeeNot CalendarEvent
+                        deriving (Show, Eq)
 
 googleCalendarHttps :: Url 'Https
 googleCalendarHttps =
@@ -62,18 +67,58 @@ getGoogleCalendarPage nextToken = do
                              <> pToken nextToken
         query           = foldMap (uncurry (=:)) options
 
--- notPushedCalendarEvents :: [CalendarEvent] -> WithAccessToken [CalendarEvent]
-notPushedCalendarEvents :: WithAccessToken [CalendarEvent]
-notPushedCalendarEvents = do
-  gcalList <- getGoogleCalendarList
+-- notPushedCalendarEvents ::
+--   [CalendarEvent] -> -- Org Events
+--   [CalendarEvent] -> -- Google Calendar Events
+--   [CalendarEvent]    -- Org Events that Google Calendar doesn't have
+-- notPushedCalendarEvents orgEv gcalEv =
+--   map runAlmost (map Almost orgEv \\ map Almost gcalEv)
+
+-- orgNotHaveCalendarEvents ::
+--   [CalendarEvent] -> -- Org Events
+--   [CalendarEvent] -> -- Google Calendar Events
+--   [CalendarEvent]    -- Google Calendar Events that org doesn't have
+-- orgNotHaveCalendarEvents = flip notPushedCalendarEvents
+
+diffCalendarEvent ::
+  [CalendarEvent] ->    -- Org Events
+  [CalendarEvent] ->    -- Google Calendar Events
+  [CalendarEventEqual]  -- Org Events that Gcal doesn't have
+diffCalendarEvent orgEv gcalEv = map judge orgEv
+  where
+    almost = map Almost gcalEv
+    edible = map Edible gcalEv
+    judge ev
+      | (Almost ev `elem` almost) = CeeAlmost ev
+      | (Edible ev `elem` edible) =
+          let k = Edible ev `elemIndex` edible in
+            CeeEdible ev (gcalEv !! fromJust k)
+      | otherwise = CeeNot ev
+
+testGap :: IO ()
+testGap = do
+  c        <- clientFromFile
+  aToken   <- aliveAccessToken `runReaderT` c
+  gcalList <- getGoogleCalendarList `runReaderT` (aToken, c)
   orgDir   <- liftIO $ getEnv "ORG"
   let orgFile = orgDir ++ "/notes.org"
   events   <- liftIO (nodeToCalendarEvents <$> orgFileNode orgFile)
-  let almostEvent = map AlmostEqual events
-  let almostGcal  = map AlmostEqual gcalList
-  let almosts = almostEvent \\ almostGcal
-  forM_ (almostGcal \\ almostEvent) $ liftIO . print
-  return $ map runAlomost almosts
+  forM_ (diffCalendarEvent events gcalList) $ \gap -> do
+    case gap of
+      CeeAlmost _ -> return ()
+      g           -> liftIO $ print g
+-- notPushedCalendarEvents :: WithAccessToken [CalendarEvent]
+-- notPushedCalendarEvents = do
+--   gcalList <- getGoogleCalendarList
+--   orgDir   <- liftIO $ getEnv "ORG"
+--   let orgFile = orgDir ++ "/notes.org"
+--   events   <- liftIO (nodeToCalendarEvents <$> orgFileNode orgFile)
+--   let almostEvent = map AlmostEqual events
+--   let almostGcal  = map AlmostEqual gcalList
+--   let almosts = almostEvent \\ almostGcal
+--   -- forM_ (almostGcal \\ almostEvent) $ liftIO . print
+--   -- return $ map runAlomost almosts
+--   return $ map runAlomost almosts
 
 -- differOrgGcal :: [CalendarEvent] -> [CalendarEvent] -> [CalendarEvent]
 -- differOrgGcal orgEV gcalEV =
@@ -115,9 +160,9 @@ instance FromJSON Calendar where
 --   aToken <- aliveAccessToken `runReaderT` c
 --   insertEvent testEvent `runReaderT` (aToken, c)
 
-testNotPush :: IO ()
-testNotPush = do
-  c <- clientFromFile
-  a <- aliveAccessToken `runReaderT` c
-  notPushedCalendarEvents `runReaderT` (a, c) >>= mapM_ print
+-- testNotPush :: IO ()
+-- testNotPush = do
+--   c <- clientFromFile
+--   a <- aliveAccessToken `runReaderT` c
+--   notPushedCalendarEvents `runReaderT` (a, c) >>= mapM_ print
 

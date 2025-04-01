@@ -41,4 +41,4 @@ testInsert = do
   client <- clientFromFile
   aToken <- aliveAccessToken `runReaderT` client
   let events    = nodeToCalendarEvents node
-  updateGoogleCalendar events `runReaderT` (aToken, client)
+  insertEvent testEvent `runReaderT` (aToken, client)

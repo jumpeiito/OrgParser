@@ -3,6 +3,7 @@ module Org.GoogleCalendar.Event
   (
     CalendarEvent (..)
   , AlmostEqual (..)
+  , EdibleEqual (..)
   , eventDefault
   , testEvent
   )
@@ -27,12 +28,20 @@ data CalendarEvent =
                 , eventLocation    :: Maybe String }
   deriving (Eq)
 
-newtype AlmostEqual = AlmostEqual { runAlomost :: CalendarEvent }
+newtype EdibleEqual = Edible { runEdible :: CalendarEvent }
+  deriving (Show)
+newtype AlmostEqual = Almost { runAlmost :: CalendarEvent }
   deriving (Show)
 
+instance Eq EdibleEqual where
+  Edible (CalendarEvent _ _ _ _ _ _ st sumry _ _) ==
+    Edible (CalendarEvent _ _ _ _ _ _ st' sumry' _ _)
+    = (sumry == sumry')
+      && ((utctDay <$> st) == (utctDay <$> st'))
+
 instance Eq AlmostEqual where
-  AlmostEqual (CalendarEvent _ dsc en _ _ _ st sumry _ loc) ==
-    AlmostEqual (CalendarEvent _ dsc' en' _ _ _ st' sumry' _ loc')
+  Almost (CalendarEvent _ dsc en _ _ _ st sumry _ loc) ==
+    Almost (CalendarEvent _ dsc' en' _ _ _ st' sumry' _ loc')
     = (dsc == dsc')
       && (en == en')
       && (st == st')
@@ -64,20 +73,31 @@ testEvent =
                , eventLocation = Just "京建労会館" }
 
 instance FromJSON CalendarEvent where
-  parseJSON (Object v) = CalendarEvent <$> (v .: "created")
-                                       <*> (v .:? "description")
-                                       <*> (toUTCTime <$> (v .: "end"))
-                                       <*> (v .: "etag")
-                                       <*> (v .: "iCalUID")
-                                       <*> (v .: "id")
-                                       <*> (toUTCTime <$> (v .: "start"))
-                                       <*> (v .: "summary")
-                                       <*> (v .: "updated")
-                                       <*> (v .:? "location")
+  parseJSON (Object v) =
+    let startParse = toUTCTime <$> (v .: "start") -- Parse (Maybe UTCTime)
+        endParse   = toUTCTime <$> (v .: "end")   -- Parse (Maybe UTCTime)
+        endTime    = repairTime <$> startParse <*> endParse
+        oneDayS    = 24 * 60 * 60
+        repairTime stMaybe enMaybe =
+          let predicates = [(/= stMaybe), (> (addUTCTime oneDayS <$> stMaybe))] in
+            case and (map ($ enMaybe) predicates) of
+              True  -> UTCTime <$> (pred <$> utctDay <$> enMaybe)
+                               <*> (utctDayTime <$> enMaybe)
+              False -> enMaybe
+    in
+    CalendarEvent <$> (v .: "created")
+                  <*> (v .:? "description")
+                  <*> endTime
+                  <*> (v .: "etag")
+                  <*> (v .: "iCalUID")
+                  <*> (v .: "id")
+                  <*> startParse
+                  <*> (v .: "summary")
+                  <*> (v .: "updated")
+                  <*> (v .:? "location")
   parseJSON invalid    =
     prependFailure "parsing CalendarEvent failed, "
     (typeMismatch "Object" invalid)
-
 
 instance ToJSON CalendarEvent where
   toJSON (CalendarEvent _ dsc en etag _ _ st smry _ loc) =
