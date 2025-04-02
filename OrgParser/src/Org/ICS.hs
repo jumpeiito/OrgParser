@@ -1,5 +1,5 @@
-{-# LANGUAGE QuasiQuotes       #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes       #-}
 {-# LANGUAGE DataKinds         #-}
 module Org.ICS
   (
@@ -19,6 +19,7 @@ import  Data.String.Conversions (convertString)
 import  Control.Monad           (forM_)
 import  Control.Monad.Reader    (Reader, ask, runReaderT, liftIO)
 import  Network.HTTP.Req
+import  Text.Pretty.Simple
 import  Org.Node                (orgFileNode, nodeToCalendarEvents, orgFile)
 import  Org.GoogleCalendar.Client
 import  Org.GoogleCalendar.Event
@@ -34,6 +35,10 @@ data CalendarEventEqual = CeeAlmost CalendarEvent
 isEdible :: CalendarEventEqual -> Bool
 isEdible (CeeEdible _ _) = True
 isEdible _ = False
+
+isCeeNot :: CalendarEventEqual -> Bool
+isCeeNot (CeeNot _) = True
+isCeeNot _ = False
 
 googleCalendarHttps :: Url 'Https
 googleCalendarHttps =
@@ -73,19 +78,6 @@ getGoogleCalendarPage nextToken = do
                              <> pToken nextToken
         query           = foldMap (uncurry (=:)) options
 
--- notPushedCalendarEvents ::
---   [CalendarEvent] -> -- Org Events
---   [CalendarEvent] -> -- Google Calendar Events
---   [CalendarEvent]    -- Org Events that Google Calendar doesn't have
--- notPushedCalendarEvents orgEv gcalEv =
---   map runAlmost (map Almost orgEv \\ map Almost gcalEv)
-
--- orgNotHaveCalendarEvents ::
---   [CalendarEvent] -> -- Org Events
---   [CalendarEvent] -> -- Google Calendar Events
---   [CalendarEvent]    -- Google Calendar Events that org doesn't have
--- orgNotHaveCalendarEvents = flip notPushedCalendarEvents
-
 diffCalendarEvent ::
   [CalendarEvent] ->    -- Org Events
   [CalendarEvent] ->    -- Google Calendar Events
@@ -101,38 +93,18 @@ diffCalendarEvent orgEv gcalEv = map judge orgEv
             CeeEdible ev (gcalEv !! fromJust k)
       | otherwise = CeeNot ev
 
-testGap :: IO ()
-testGap = do
+updateGoogleCalendar :: IO ()
+updateGoogleCalendar = do
   Encoding.setLocaleEncoding Encoding.utf8
   c        <- clientFromFile
   aToken   <- aliveAccessToken `runReaderT` c
-  gcalList <- getGoogleCalendarList `runReaderT` (aToken, c)
-  oFile    <- orgFile
-  oModify  <- getModificationTime oFile
-                >>= return . ((9 * 3600) `addUTCTime`)
-  events   <- liftIO (nodeToCalendarEvents <$> orgFileNode oFile)
-  let gap = filter isEdible $ diffCalendarEvent events gcalList
-  let gcalNewer = filter (newer oModify . eventUpdated) gcalList
-  let h   = head gap
-  -- liftIO $ print h
-  -- replaceEvent h `runReaderT` (aToken, c)
-  print oModify
-  mapM_ print gcalNewer
-  -- forM_ (diffCalendarEvent events gcalList) $ \gap -> do
-  --   case gap of
-  --     CeeEdible _ _ -> return ()
-  --     g             -> liftIO $ putStrLn $ show g
-  where
-    newer _ (Left _)      = False
-    newer mtime (Right u) = u > mtime
-
-updateGoogleCalendar :: [CalendarEvent] -> WithAccessToken ()
-updateGoogleCalendar events = forM_ withC $ \(c, e) -> do
-  liftIO $ putStr $ show c ++ "/" ++ show len ++ " "
-  insertEvent e
-  where
-    withC = zip [1..] events :: [(Int, CalendarEvent)]
-    len = length events
+  (`runReaderT` (aToken, c)) $ do
+    gcalList <- getGoogleCalendarList
+    oFile    <- liftIO $ orgFile
+    events   <- nodeToCalendarEvents <$> liftIO (orgFileNode oFile)
+    let diffs    = diffCalendarEvent events gcalList
+    forM_ (filter isEdible diffs) replaceEvent
+    forM_ (filter isCeeNot diffs) $ \(CeeNot c) -> insertEvent c
 
 insertEvent :: CalendarEvent -> WithAccessToken ()
 insertEvent cal = do
@@ -151,7 +123,7 @@ replaceEvent (CeeEdible org gcal) = do
     res  <- req PUT url (ReqBodyJson org) jsonResponse
               (headerAuthorization aToken)
     liftIO $ print $ (responseBody res :: CalendarEvent)
-    liftIO $ putStrLn $ eventSummary org ++ " registered!"
+    liftIO $ putStrLn $ eventSummary org ++ " replace!"
 replaceEvent _ = return ()
 
 data Calendar = Calendar [CalendarEvent] (Maybe String) deriving (Show)
@@ -162,15 +134,3 @@ instance FromJSON Calendar where
   parseJSON invalid    =
     prependFailure "parsing Calendar failed, "
     (typeMismatch "Object" invalid)
-
--- insertTe:load c:/Users/kkr0133/Documents/OrgParser/OrgParser/src/Org/ICS.hs:load c:/Users/kkr0133/Documents/OrgParser/OrgParser/src/Org/ICS.hsst :: IO ()
--- insertTest = do
---   c      <- clientFromFile
---   aToken <- aliveAccessToken `runReaderT` c
---   insertEvent testEvent `runReaderT` (aToken, c)
-
--- testNotPush :: IO ()
--- testNotPush = do
---   c <- clientFromFile
---   a <- aliveAccessToken `runReaderT` c
---   notPushedCalendarEvents `runReaderT` (a, c) >>= mapM_ print

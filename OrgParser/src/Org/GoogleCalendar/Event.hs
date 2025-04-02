@@ -87,7 +87,7 @@ instance FromJSON CalendarEvent where
                                <*> (utctDayTime <$> enMaybe)
               False -> enMaybe
     in
-    CalendarEvent <$> (parse dateParse "" <$> (v .: "created"))
+    CalendarEvent <$> (parse dateGreenWichParse "" <$> (v .: "created"))
                   <*> (v .:? "description")
                   <*> endTime
                   <*> (v .: "etag")
@@ -95,7 +95,7 @@ instance FromJSON CalendarEvent where
                   <*> (v .: "id")
                   <*> startParse
                   <*> (v .: "summary")
-                  <*> (parse dateParse "" <$> (v .: "updated"))
+                  <*> (parse dateGreenWichParse "" <$> (v .: "updated"))
                   <*> (v .:? "location")
   parseJSON invalid    =
     prependFailure "parsing CalendarEvent failed, "
@@ -111,8 +111,7 @@ instance ToJSON CalendarEvent where
                , "description" .= dsc
                , "location"    .= mempty `fromMaybe` loc
                , "start"       .= st'
-               , "end"         .= en'
-               ]
+               , "end"         .= en' ]
 
 instance Show CalendarEvent where
   show (CalendarEvent c _ e _ _ cid s summary u _) =
@@ -148,12 +147,14 @@ dateParse = do
                                       , count 2 digit]
   [h, mi, s] <- (string "T" *> timeParse) <|> return [0, 0, 0]
   let day = fromGregorian (toInteger y) m d
-  let greenwich = UTCTime day (secondsToDiffTime (h * 3600 + mi * 60 + s))
-  return $ (9 * 3600) `addUTCTime` greenwich
+  return $ UTCTime day (secondsToDiffTime (h * 3600 + mi * 60 + s))
   where
     timeParse = map read <$> sequence [ count 2 digit <* string ":"
                                       , count 2 digit <* string ":"
                                       , count 2 digit]
+
+dateGreenWichParse :: Parsec String () UTCTime
+dateGreenWichParse = ((9 * 3600) `addUTCTime`) <$> dateParse
 
 jpTimeLocale :: TimeLocale
 jpTimeLocale =
