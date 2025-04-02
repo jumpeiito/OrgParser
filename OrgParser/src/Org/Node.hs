@@ -15,6 +15,7 @@ module Org.Node
   , nodeCollectList
   , normalFilter
   , nodeToCalendarEvents
+  , orgFile
   )
 where
 
@@ -26,6 +27,7 @@ import Data.Time
 import Data.Either (rights)
 import Control.Monad.State
 import Control.Applicative ((<|>))
+import System.Environment      (getEnv)
 
 data OrgTitle = OrgTitle { otitle      :: String
                          , olevel      :: Int
@@ -296,3 +298,6 @@ tailSpaceKill = reverse . kloop . reverse
     kloop (x:xs)
       | x == ' ' = kloop xs
       | otherwise = x : kloop xs
+
+orgFile :: IO FilePath
+orgFile = flip (++) "/notes.org" <$> getEnv "ORG"

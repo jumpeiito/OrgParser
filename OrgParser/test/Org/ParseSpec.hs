@@ -29,9 +29,22 @@ spec = do
       parse orgTimeParse "" "12:00" `shouldBe` Right (12, 0)
     it "orgDateYMDParse" $ do
       parse orgDateYMDParse "" "2024-12-01" `shouldBe` Right (2024, 12, 1)
-    it "orgDateCoreParse2" $ do
-      parse orgDateCoreParse "" "2024-12-01 @" `shouldBe`
-        Right (mktime 2024 12 1 0 0)
+    it "orgDateCoreParseRefine1" $ do
+      parse orgDateCoreParseRefine "" "2024-12-01 @" `shouldBe`
+        Right ((mktime 2024 12 1 0 0), Nothing)
+    it "orgDateCoreParseRefine2" $ do
+      parse orgDateCoreParseRefine "" "2024-12-01 @ 10:00" `shouldBe`
+        Right ((mktime 2024 12 1 10 0), Nothing)
+    it "orgDateCoreParseRefine1" $ do
+      parse orgDateCoreParseRefine "" "2025-03-31 @ 09:00-12:00" `shouldBe`
+        Right ((mktime 2025 3 31 9 0)
+              , Just (mktime 2025 3 31 12 0))
+    -- it "orgDateCoreParse1" $ do
+    --   parse orgDateCoreParse "" "2024-12-01 @" `shouldBe`
+    --     Right (mktime 2024 12 1 0 0)
+    -- it "orgDateCoreParse1" $ do
+    --   parse orgDateCoreParse "" "2024-12-01 @" `shouldBe`
+    --     Right (mktime 2024 12 1 0 0)
     it "orgTimeStampParse1--active date" $ do
       parse orgTimeStampParse "" "<2024-12-01 @>" `shouldBe`
         Right (ParserTimeStamp { begin    = mktime 2024 12 1 0 0
@@ -64,6 +77,7 @@ spec = do
                                , end      = Nothing})
     it "orgTimeStampParse6--scheduled date with time" $ do
       parse orgTimeStampParse "" "SCHEDULED: <2025-12-01 @ 11:59>" `shouldBe`
+
         Right (ParserTimeStamp { begin    = mktime 2025 12 1 11 59
                                , datetype = Scheduled
                                , active   = True
@@ -92,13 +106,27 @@ spec = do
                                , datetype = Normal
                                , active   = True
                                , end      = Just (mktime 2024 12 2 12 0)})
-    it "orgTimeStampParse11--range with time" $ do
+    it "orgTimeStampParse11--range with time 1" $ do
       parse orgTimeStampParse "" "SCHEDULED: <2024-12-01 月 12:00> - <2024-12-02 火 12:00>"
         `shouldBe`
         Right (ParserTimeStamp { begin    = mktime 2024 12 1 12 0
                                , datetype = Scheduled
                                , active   = True
                                , end      = Just (mktime 2024 12 2 12 0)})
+    it "orgTimeStampParse12--range with time 2" $ do
+      parse orgTimeStampParse "" "SCHEDULED: <2024-12-01 月 12:00-14:00>"
+        `shouldBe`
+        Right (ParserTimeStamp { begin    = mktime 2024 12 1 12 0
+                               , datetype = Scheduled
+                               , active   = True
+                               , end      = Just (mktime 2024 12 1 14 0)})
+    it "orgTimeStampParse11--range with time 3" $ do
+      parse orgTimeStampParse "" "<2024-12-01 月 09:00-17:00>"
+        `shouldBe`
+        Right (ParserTimeStamp { begin    = mktime 2024 12 1 9 0
+                               , datetype = Normal
+                               , active   = True
+                               , end      = Just (mktime 2024 12 1 17 0)})
     it "orgTitleParse" $ do
       parse orgTitleParse "" "**** hoge" `shouldBe`
         Right (defTitle { title = "hoge" , level = 4 })

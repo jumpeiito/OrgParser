@@ -6,6 +6,7 @@ module Org.Parse
   , orgTagsParse
   , orgDateYMDParse
   , orgDateCoreParse
+  , orgDateCoreParseRefine
   , orgTimeStampParse
   , orgTimeParse
   , orgTitleParse
@@ -80,32 +81,73 @@ orgDateYMDParse = (,,) <$> withRangeParse "year"  4 2024 2099 <* char '-'
 
 orgDateCoreParse :: Parser UTCTime
 orgDateCoreParse = do
+  -- <2025-04-17 木 10:00>-<2025-04-18 金 12:00>
+  -- Orgファイルとしては以下の形式も許容されるが,対応しない
+  -- <2025-04-17 木 10:00-12:00>-<2025-04-18 金 12:00-17:00>
   (y, m, d) <- orgDateYMDParse <* space <* anyChar
   (h, mi)   <-
     -- ((oneOf "月火水木金土日") >> space >> orgTimeParse) <|> return (0,0)
     try (space >> orgTimeParse) <|> return (0,0)
-  return $ UTCTime (fromGregorian (toInteger y) m d) $ timeToDiffTime (h, mi)
-
-orgTimeStampParse :: Parser Element
-orgTimeStampParse = do
-  type'         <- typeP
-  (bool, time') <- anyHit [acore, icore]
-  end'          <- endTime
-  return $ ParserTimeStamp { begin    = time'
-                           , datetype = type'
-                           , active   = bool
-                           , end      = end' }
+  return $ makeUTC y m d h mi
   where
-    acore'   = between (char '<') (char '>') orgDateCoreParse
-    icore'   = between (char '[') (char ']') orgDateCoreParse
-    acore    = (,) <$> return True  <*> acore'
-    icore    = (,) <$> return False <*> icore'
-    rangesep = many space >> char '-' >> many space
+    makeDay y m d = fromGregorian (toInteger y) m d
+    makeTime h mi = timeToDiffTime (h, mi)
+    makeUTC y m d h mi = UTCTime (makeDay y m d) (makeTime h mi)
+
+orgDateCoreParseRefine :: Parser (UTCTime, Maybe UTCTime)
+orgDateCoreParseRefine = do
+  (y, m, d)     <- orgDateYMDParse <* space <* anyChar
+  ((h, mi), en) <- try both <|> try startOnly <|> try donthit
+    -- ((oneOf "月火水木金土日") >> space >> orgTimeParse) <|> return (0,0)
+  return $ ( makeUTC y m d h mi
+           , uncurry (makeUTC y m d) <$> en)
+  where
+    makeDay y m d = fromGregorian (toInteger y) m d
+    makeTime h mi = timeToDiffTime (h, mi)
+    makeUTC y m d h mi = UTCTime (makeDay y m d) (makeTime h mi)
+    -- <2025-04-17 木 10:00-12:00>
+    both = do
+      start' <- space *> orgTimeParse <* char '-'
+      end'   <- Just <$> orgTimeParse
+      return (start', end')
+    -- <2025-04-17 木 10:00>
+    startOnly = (flip (,) Nothing) <$> (space *> orgTimeParse)
+    -- <2025-04-17 木>
+    donthit   = return ((0, 0), Nothing)
+
+orgTimeStampTypeParse :: Parser OrgTimeStampType
+orgTimeStampTypeParse = do
+  anyHit (map try [schedule, deadline, closed]) <|> return Normal
+  where
     schedule = string "SCHEDULED: " >> return Scheduled
     deadline = string "DEADLINE: "  >> return Deadline
     closed   = string "CLOSED: "    >> return Closed
-    typeP    = anyHit (map try [schedule, deadline, closed]) <|> return Normal
-    endTime  = try (rangesep >> (Just . snd) <$> acore) <|> return Nothing
+
+orgTimeStampParse :: Parser Element
+orgTimeStampParse = do
+  -- ORGで許容されている
+  -- <2025-04-02 水 10:00-12:00>-<2025-04-03 木 10:00-12:00>
+  -- のような形式には対応しない。
+  -- 対応する形式は,
+  -- (1) <2025-04-02 水>
+  -- (2) <2025-04-02 水 10:00>
+  -- (3) <2025-04-02 水 10:00-17:00>
+  -- (4) <2025-04-02 水 10:00>-<2025-04-03 木 17:00>
+  -- のいずれかとする。
+  type'               <- orgTimeStampTypeParse
+  (b, (st', timeend)) <- anyHit [acore, icore]
+  end'                <- endTime
+  return $ ParserTimeStamp { begin    = st'
+                           , datetype = type'
+                           , active   = b
+                           , end      = timeend `mplus` end' }
+  where
+    dateP s' e' = between (char s') (char e') orgDateCoreParseRefine
+    acore       = (,) True  <$> dateP '<' '>'
+    icore       = (,) False <$> dateP '[' ']'
+    rangesep    = many space >> char '-' >> many space
+    endTime     = try (rangesep >> (Just . fst . snd) <$> acore)
+                  <|> return Nothing
 
 timeToDiffTime :: (Int, Int) -> DiffTime
 timeToDiffTime (h, m) =

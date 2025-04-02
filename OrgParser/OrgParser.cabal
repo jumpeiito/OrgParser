@@ -20,6 +20,9 @@ library
   exposed-modules:     Data.String.Strip
                      , Org.Parse
                      , Org.Node
+                     , Org.ICS
+                     , Org.GoogleCalendar.Client
+                     , Org.GoogleCalendar.Event
   build-depends:       base >= 4.7 && < 5
                      , parsec
                      , time

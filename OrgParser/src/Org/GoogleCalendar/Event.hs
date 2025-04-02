@@ -16,7 +16,7 @@ import  Data.Time
 import  Text.Parsec
 
 data CalendarEvent =
-  CalendarEvent { eventCreated     :: String
+  CalendarEvent { eventCreated     :: Either ParseError UTCTime
                 , eventDescription :: Maybe String
                 , eventEnd         :: Maybe UTCTime
                 , eventEtag        :: String
@@ -24,7 +24,7 @@ data CalendarEvent =
                 , eventID          :: String
                 , eventStart       :: Maybe UTCTime
                 , eventSummary     :: String
-                , eventUpdated     :: String
+                , eventUpdated     :: Either ParseError UTCTime
                 , eventLocation    :: Maybe String }
   deriving (Eq)
 
@@ -50,7 +50,8 @@ instance Eq AlmostEqual where
 
 eventDefault :: CalendarEvent
 eventDefault =
-  CalendarEvent { eventCreated     = mempty
+  CalendarEvent { eventCreated     = Right (UTCTime (fromGregorian 2025 4 1)
+                                                    (secondsToDiffTime 0))
                 , eventDescription = Nothing
                 , eventEnd         = Nothing
                 , eventEtag        = mempty
@@ -58,7 +59,8 @@ eventDefault =
                 , eventID          = mempty
                 , eventStart       = Nothing
                 , eventSummary     = mempty
-                , eventUpdated     = mempty
+                , eventUpdated     = Right (UTCTime (fromGregorian 2025 4 1)
+                                                    (secondsToDiffTime 0))
                 , eventLocation    = Nothing }
 
 testEvent :: CalendarEvent
@@ -85,7 +87,7 @@ instance FromJSON CalendarEvent where
                                <*> (utctDayTime <$> enMaybe)
               False -> enMaybe
     in
-    CalendarEvent <$> (v .: "created")
+    CalendarEvent <$> (parse dateParse "" <$> (v .: "created"))
                   <*> (v .:? "description")
                   <*> endTime
                   <*> (v .: "etag")
@@ -93,7 +95,7 @@ instance FromJSON CalendarEvent where
                   <*> (v .: "id")
                   <*> startParse
                   <*> (v .: "summary")
-                  <*> (v .: "updated")
+                  <*> (parse dateParse "" <$> (v .: "updated"))
                   <*> (v .:? "location")
   parseJSON invalid    =
     prependFailure "parsing CalendarEvent failed, "
@@ -113,10 +115,18 @@ instance ToJSON CalendarEvent where
                ]
 
 instance Show CalendarEvent where
-  show (CalendarEvent _ _ e _ _ _ s summary _ _) =
+  show (CalendarEvent c _ e _ _ cid s summary u _) =
     let st = mempty `fromMaybe` (show <$> s)
         en = mempty `fromMaybe` (show <$> e) in
-    st ++ "->" ++ en ++ " : " ++ summary
+    st
+    ++ "->"
+    ++ en
+    ++ " : "
+    ++ summary
+    ++ ":"
+    ++ show c
+    ++ "/"
+    ++ show u
 
 instance Ord CalendarEvent where
   (CalendarEvent _ _ _ _ _ _ s1 _ _ _) `compare`
@@ -138,7 +148,8 @@ dateParse = do
                                       , count 2 digit]
   [h, mi, s] <- (string "T" *> timeParse) <|> return [0, 0, 0]
   let day = fromGregorian (toInteger y) m d
-  return $ UTCTime day (secondsToDiffTime (h * 3600 + mi * 60 + s))
+  let greenwich = UTCTime day (secondsToDiffTime (h * 3600 + mi * 60 + s))
+  return $ (9 * 3600) `addUTCTime` greenwich
   where
     timeParse = map read <$> sequence [ count 2 digit <* string ":"
                                       , count 2 digit <* string ":"

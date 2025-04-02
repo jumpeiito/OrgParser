@@ -11,23 +11,29 @@ where
 
 import  Data.List               (sort, elemIndex, (\\))
 import  Data.Text               (Text)
+import  Data.Time
 import  Data.Aeson
 import  Data.Aeson.Types
 import  Data.Maybe              (catMaybes, fromJust)
-import  Data.String.Conversions
-import  Control.Monad
-import  Control.Monad.Reader
+import  Data.String.Conversions (convertString)
+import  Control.Monad           (forM_)
+import  Control.Monad.Reader    (Reader, ask, runReaderT, liftIO)
 import  Network.HTTP.Req
+import  Org.Node                (orgFileNode, nodeToCalendarEvents, orgFile)
 import  Org.GoogleCalendar.Client
 import  Org.GoogleCalendar.Event
-import  System.Environment   (getEnv)
-import  System.Directory     (getModificationTime)
-import  Org.Node             (orgFileNode, nodeToCalendarEvents)
+import  System.Environment      (getEnv)
+import  System.Directory        (getModificationTime)
+import  qualified GHC.IO.Encoding as Encoding
 
 data CalendarEventEqual = CeeAlmost CalendarEvent
                         | CeeEdible CalendarEvent CalendarEvent
                         | CeeNot CalendarEvent
                         deriving (Show, Eq)
+
+isEdible :: CalendarEventEqual -> Bool
+isEdible (CeeEdible _ _) = True
+isEdible _ = False
 
 googleCalendarHttps :: Url 'Https
 googleCalendarHttps =
@@ -97,36 +103,28 @@ diffCalendarEvent orgEv gcalEv = map judge orgEv
 
 testGap :: IO ()
 testGap = do
+  Encoding.setLocaleEncoding Encoding.utf8
   c        <- clientFromFile
   aToken   <- aliveAccessToken `runReaderT` c
   gcalList <- getGoogleCalendarList `runReaderT` (aToken, c)
-  orgDir   <- liftIO $ getEnv "ORG"
-  let orgFile = orgDir ++ "/notes.org"
-  events   <- liftIO (nodeToCalendarEvents <$> orgFileNode orgFile)
-  forM_ (diffCalendarEvent events gcalList) $ \gap -> do
-    case gap of
-      CeeAlmost _ -> return ()
-      g           -> liftIO $ print g
--- notPushedCalendarEvents :: WithAccessToken [CalendarEvent]
--- notPushedCalendarEvents = do
---   gcalList <- getGoogleCalendarList
---   orgDir   <- liftIO $ getEnv "ORG"
---   let orgFile = orgDir ++ "/notes.org"
---   events   <- liftIO (nodeToCalendarEvents <$> orgFileNode orgFile)
---   let almostEvent = map AlmostEqual events
---   let almostGcal  = map AlmostEqual gcalList
---   let almosts = almostEvent \\ almostGcal
---   -- forM_ (almostGcal \\ almostEvent) $ liftIO . print
---   -- return $ map runAlomost almosts
---   return $ map runAlomost almosts
-
--- differOrgGcal :: [CalendarEvent] -> [CalendarEvent] -> [CalendarEvent]
--- differOrgGcal orgEV gcalEV =
---   let gap = map AlmostEqual orgEV \\ map AlmostEqual gcalEV
---       termP ev g = 
-
-  -- orgMtime <- liftIO $ getModificationTime orgFile
-  -- liftIO $ print orgMtime
+  oFile    <- orgFile
+  oModify  <- getModificationTime oFile
+                >>= return . ((9 * 3600) `addUTCTime`)
+  events   <- liftIO (nodeToCalendarEvents <$> orgFileNode oFile)
+  let gap = filter isEdible $ diffCalendarEvent events gcalList
+  let gcalNewer = filter (newer oModify . eventUpdated) gcalList
+  let h   = head gap
+  -- liftIO $ print h
+  -- replaceEvent h `runReaderT` (aToken, c)
+  print oModify
+  mapM_ print gcalNewer
+  -- forM_ (diffCalendarEvent events gcalList) $ \gap -> do
+  --   case gap of
+  --     CeeEdible _ _ -> return ()
+  --     g             -> liftIO $ putStrLn $ show g
+  where
+    newer _ (Left _)      = False
+    newer mtime (Right u) = u > mtime
 
 updateGoogleCalendar :: [CalendarEvent] -> WithAccessToken ()
 updateGoogleCalendar events = forM_ withC $ \(c, e) -> do
@@ -145,6 +143,17 @@ insertEvent cal = do
     liftIO $ print $ (responseBody res :: CalendarEvent)
     liftIO $ putStrLn $ eventSummary cal ++ " registered!"
 
+replaceEvent :: CalendarEventEqual -> WithAccessToken ()
+replaceEvent (CeeEdible org gcal) = do
+  aToken <- fst <$> ask
+  let url = googleCalendarHttps /: (convertString $ eventID gcal)
+  runReq defaultHttpConfig $ do
+    res  <- req PUT url (ReqBodyJson org) jsonResponse
+              (headerAuthorization aToken)
+    liftIO $ print $ (responseBody res :: CalendarEvent)
+    liftIO $ putStrLn $ eventSummary org ++ " registered!"
+replaceEvent _ = return ()
+
 data Calendar = Calendar [CalendarEvent] (Maybe String) deriving (Show)
 
 instance FromJSON Calendar where
@@ -154,7 +163,7 @@ instance FromJSON Calendar where
     prependFailure "parsing Calendar failed, "
     (typeMismatch "Object" invalid)
 
--- insertTest :: IO ()
+-- insertTe:load c:/Users/kkr0133/Documents/OrgParser/OrgParser/src/Org/ICS.hs:load c:/Users/kkr0133/Documents/OrgParser/OrgParser/src/Org/ICS.hsst :: IO ()
 -- insertTest = do
 --   c      <- clientFromFile
 --   aToken <- aliveAccessToken `runReaderT` c
@@ -165,4 +174,3 @@ instance FromJSON Calendar where
 --   c <- clientFromFile
 --   a <- aliveAccessToken `runReaderT` c
 --   notPushedCalendarEvents `runReaderT` (a, c) >>= mapM_ print
-
