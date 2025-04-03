@@ -102,9 +102,10 @@ updateGoogleCalendar = do
     gcalList <- getGoogleCalendarList
     oFile    <- liftIO $ orgFile
     events   <- nodeToCalendarEvents <$> liftIO (orgFileNode oFile)
-    let diffs    = diffCalendarEvent events gcalList
-    forM_ (filter isEdible diffs) replaceEvent
-    forM_ (filter isCeeNot diffs) $ \(CeeNot c) -> insertEvent c
+    -- let diffs    = diffCalendarEvent events gcalList
+    -- forM_ (filter isEdible diffs) replaceEvent
+    -- forM_ (filter isCeeNot diffs) $ \(CeeNot c) -> insertEvent c
+    forM_ events (liftIO . print)
 
 insertEvent :: CalendarEvent -> WithAccessToken ()
 insertEvent cal = do

@@ -38,13 +38,18 @@
     (goto-char (point-max))
     (insert ":t " target-string)
     (comint-send-input)
-    (let* ((regend (1- (line-beginning-position)))
-           (regbegin (progn
-                      (comint-previous-prompt 1)
-                      (1+ (line-end-position))))
-           (annot (s-chomp
-                   (buffer-substring-no-properties regbegin regend))))
-      (message annot))))
+    ;; (let* ((regend (1- (line-beginning-position)))
+    ;;        (regbegin (progn
+    ;;                   (comint-previous-prompt 1)
+    ;;                   (1+ (line-end-position))))
+    ;;        (annot (s-chomp
+    ;;                (buffer-substring-no-properties regbegin regend))))
+    ;;   (message annot))
+    (let ((annot (buffer-substring-no-properties
+                  comint-last-input-end (point))))
+      (set-buffer curbuf)
+      (minibuffer-message annot)
+      (sit-for 5))))
 
 (define-key haskell-mode-map "\C-ck" 'inf-haskell-file-load)
-(define-key haskell-mode-map "\C-ct" 'inf-haskell-type-annotation)
+(define-key haskell-mode-map "\C-ct" 'inf-haskell-type-annotation2)

@@ -125,11 +125,13 @@ validateAccessToken = do
   `catch`
     errorHandle
   where
-    errorHandle err = case err of
-                        VanillaHttpException e -> do
-                          liftIO $ print "AccessToken to refresh"; return False
-                        JsonHttpException e -> do
-                          liftIO $ print e; return False
+    errorHandle err =
+      case err of
+        VanillaHttpException _ -> do
+          liftIO $ print ("AccessToken to refresh" :: String)
+          return False
+        JsonHttpException e -> do
+          liftIO $ print e; return False
 
 refreshAccessToken :: WithClient String
 refreshAccessToken = do

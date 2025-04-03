@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE KindSignatures    #-}
+{-# LANGUAGE FlexibleInstances #-}
 module Org.GoogleCalendar.Event
   (
     CalendarEvent (..)
@@ -6,13 +8,20 @@ module Org.GoogleCalendar.Event
   , EdibleEqual (..)
   , eventDefault
   , testEvent
+  , QTimeType (..)
+  -- , QueryType (..)
+  -- , matchQuery
+  -- , matchQueryOr
   )
 where
 
-import  Data.Maybe              (fromMaybe)
+import  Data.Maybe              (fromMaybe, fromJust, isNothing)
+import  Data.Either             (fromRight, isLeft)
 import  Data.Aeson
 import  Data.Aeson.Types hiding (parse)
 import  Data.Time
+import  Data.List               (inits, tails)
+import  qualified Data.Map.Strict as M
 import  Text.Parsec
 
 data CalendarEvent =
@@ -47,6 +56,13 @@ instance Eq AlmostEqual where
       && (st == st')
       && (sumry == sumry')
       && (loc == loc')
+
+type DateSet = (Integer, Int, Int)
+
+datesetToUTCTime :: DateSet -> UTCTime
+datesetToUTCTime (y, m, d) =
+  UTCTime (fromGregorian y m d) (secondsToDiffTime 0)
+
 
 eventDefault :: CalendarEvent
 eventDefault =
@@ -114,7 +130,7 @@ instance ToJSON CalendarEvent where
                , "end"         .= en' ]
 
 instance Show CalendarEvent where
-  show (CalendarEvent c _ e _ _ cid s summary u _) =
+  show (CalendarEvent _ d e _ _ _ s summary _ _) =
     let st = mempty `fromMaybe` (show <$> s)
         en = mempty `fromMaybe` (show <$> e) in
     st
@@ -123,9 +139,7 @@ instance Show CalendarEvent where
     ++ " : "
     ++ summary
     ++ ":"
-    ++ show c
-    ++ "/"
-    ++ show u
+    ++ show d
 
 instance Ord CalendarEvent where
   (CalendarEvent _ _ _ _ _ _ s1 _ _ _) `compare`
@@ -202,3 +216,86 @@ timeObject st en
     (makeTimeObject GDate st, makeTimeObject GDate en)
   | otherwise =
     (makeTimeObject GDateTime st, makeTimeObject GDateTime en)
+
+--------------------------------------------------
+-- Query
+--------------------------------------------------
+data QTimeType = QDate DateSet
+               | QRange (DateSet, DateSet)
+               deriving (Show, Eq)
+
+data QueryContainType = QDescription String
+                      | QID String
+                      | QSummary String
+                      | QLocation String
+                      deriving (Show, Eq)
+
+data QueryDateType = QCreated QTimeType
+                   | QStart QTimeType
+                   | QEnd QTimeType
+                   | QUpdated QTimeType
+                   deriving (Show, Eq)
+
+class (Applicative f, Eq (f UTCTime)) =>
+  QueryDateMatch (f :: * -> *) where
+  failPred  :: f UTCTime -> Bool
+  unpure    :: f UTCTime -> UTCTime
+  dmatch    :: QTimeType -> f UTCTime -> Bool
+
+  QDate ds `dmatch` utc
+    | failPred utc == True = False
+    | otherwise   = datesetToUTCTime ds == unpure utc
+  QRange (d1, d2) `dmatch` utc
+    | failPred utc == True = False
+    | otherwise = datesetToUTCTime d1 <= unpure utc
+                    && datesetToUTCTime d2 >= unpure utc
+
+instance QueryDateMatch Maybe where
+  failPred = isNothing
+  unpure   = fromJust
+
+instance Eq a => QueryDateMatch (Either a) where
+  failPred = isLeft
+  unpure   = fromRight (UTCTime (fromGregorian 1900 1 1)
+                                (secondsToDiffTime 0))
+
+class QueryContains a where
+  translate :: a -> String
+  contains  :: String -> a -> Bool
+  contains [] _ = False
+  contains part s =
+    let subs = translate s in
+    part `elem` (inits subs ++ tails subs)
+
+instance QueryContains String where
+  translate = id
+
+instance QueryContains (Maybe String) where
+  translate = (mempty `fromMaybe`)
+
+-- class Query a where
+--   query :: b -> CalendarEvent -> Bool
+--   unQuery :: a -> b
+
+-- instance Query QueryContainType where
+--   q1 `query` e = 
+-- query :: QueryType -> CalendarEvent -> Bool
+-- query (QDescription d) e = d `contains` eventDescription e
+-- query (QID d) e          = d `contains` eventID e
+-- query (QSummary d) e     = d `contains` eventSummary e
+-- query (QLocation d) e    = d `contains` eventLocation e
+-- query (QCreated d) e  = d `dmatch` eventCreated e
+-- query (QUpdated d) e  = d `dmatch` eventUpdated e
+-- query (QStart d) e    = d `dmatch` eventStart e
+-- query (QEnd d) e      = d `dmatch` eventEnd e
+
+-- matchQuery :: [QueryType] -> [CalendarEvent] -> [CalendarEvent]
+-- matchQuery qs events = filter applies events
+--   where
+--     applies event = and $ map (`query` event) qs
+
+-- matchQueryOr :: [QueryType] -> [CalendarEvent] -> [CalendarEvent]
+-- matchQueryOr qs events = filter applies events
+--   where
+--     applies event = or $ map (`query` event) qs
+
