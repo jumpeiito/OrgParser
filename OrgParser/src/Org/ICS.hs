@@ -9,22 +9,21 @@ module Org.ICS
   )
 where
 
-import  Data.List               (sort, elemIndex, (\\))
+import  Data.List               (sort, elemIndex)
 import  Data.Text               (Text)
 import  Data.Time
 import  Data.Aeson
 import  Data.Aeson.Types
-import  Data.Maybe              (catMaybes, fromJust)
+import  Data.Maybe              (fromJust)
 import  Data.String.Conversions (convertString)
 import  Control.Monad           (forM_)
-import  Control.Monad.Reader    (Reader, ask, runReaderT, liftIO)
+import  Control.Monad.Reader    (ask, runReaderT, liftIO)
 import  Network.HTTP.Req
-import  Text.Pretty.Simple
 import  Org.Node                (orgFileNode, nodeToCalendarEvents, orgFile)
 import  Org.GoogleCalendar.Client
 import  Org.GoogleCalendar.Event
-import  System.Environment      (getEnv)
-import  System.Directory        (getModificationTime)
+import  qualified Org.GoogleCalendar.Color as GCC
+-- import  System.Directory        (getModificationTime)
 import  qualified GHC.IO.Encoding as Encoding
 
 data CalendarEventEqual = CeeAlmost CalendarEvent
@@ -102,10 +101,13 @@ updateGoogleCalendar = do
     gcalList <- getGoogleCalendarList
     oFile    <- liftIO $ orgFile
     events   <- nodeToCalendarEvents <$> liftIO (orgFileNode oFile)
-    -- let diffs    = diffCalendarEvent events gcalList
-    -- forM_ (filter isEdible diffs) replaceEvent
-    -- forM_ (filter isCeeNot diffs) $ \(CeeNot c) -> insertEvent c
-    forM_ events (liftIO . print)
+    let diffs    = diffCalendarEvent events gcalList
+    forM_ (filter isEdible diffs) replaceEvent
+    forM_ (filter isCeeNot diffs) $ \tobeceenot ->
+      case tobeceenot of
+        CeeNot s -> insertEvent s
+        _        -> return ()
+    -- forM_ events (liftIO . print)
 
 insertEvent :: CalendarEvent -> WithAccessToken ()
 insertEvent cal = do
@@ -135,3 +137,34 @@ instance FromJSON Calendar where
   parseJSON invalid    =
     prependFailure "parsing Calendar failed, "
     (typeMismatch "Object" invalid)
+
+searchCalendar :: IO ()
+searchCalendar = do
+  Encoding.setLocaleEncoding Encoding.utf8
+  c        <- clientFromFile
+  aToken   <- aliveAccessToken `runReaderT` c
+  (`runReaderT` (aToken, c)) $ do
+    gcalList <- getGoogleCalendarList
+    oFile    <- liftIO $ orgFile
+    events   <- nodeToCalendarEvents <$> liftIO (orgFileNode oFile)
+    -- let diffs    = diffCalendarEvent events gcalList
+    -- forM_ (filter isEdible diffs) replaceEvent
+    -- forM_ (filter isCeeNot diffs) $ \(CeeNot c) -> insertEvent c
+    let q = [ eventStart <+> QRange (2025, 4, 1) (2025, 4, 30)]
+    forM_ (filter (matchQuery q) gcalList) $ liftIO . print
+    forM_ (filter (matchQuery q) events)   $ liftIO . print
+
+getColors :: IO ()
+getColors = do
+  c      <- clientFromFile
+  aToken <- aliveAccessToken `runReaderT` c
+  let url = https "www.googleapis.com"
+            /: "calendar"
+            /: "v3"
+            /: "colors"
+  runReq defaultHttpConfig $ do
+    res  <- req GET url NoReqBody jsonResponse
+              (headerAuthorization aToken)
+    liftIO $ print $ (responseBody res :: GCC.ColorSet)
+    -- liftIO $ putStrLn $ eventSummary org ++ " replace!"
+-- GET https://www.googleapis.com/calendar/v3/colors

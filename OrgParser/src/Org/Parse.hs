@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 module Org.Parse
   (
   --   orgLineParse , OrgElement (..)
@@ -21,6 +22,7 @@ module Org.Parse
 where
 
 import Data.Time
+import qualified Data.List as Dl
 import Text.Parsec
 import Control.Monad
 
@@ -206,9 +208,11 @@ orgLinkParse = do
   where
     link1 = do
       link <- string "[[" *> many1 (satisfy (/= ']')) <* string "]]"
+      guard $ "http" `Dl.isPrefixOf` link
       return (ParserLink link Nothing)
     link2 = do
       link <- string "[[" *> manyTill (satisfy (/= ']')) (string "]")
+      guard $ "http" `Dl.isPrefixOf` link
       expl <- string "[" *> manyTill (satisfy (/= ']')) (string "]")
       return (ParserLink link (Just expl))
 -- -- ---link-----------------------------------------------------

@@ -1,4 +1,5 @@
 {-# LANGUAGE InstanceSigs, DeriveFunctor, DeriveFoldable, FlexibleContexts, ScopedTypeVariables, FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings, QuasiQuotes #-}
 module Org.Node
   (
     Node (..)
@@ -27,6 +28,8 @@ import Data.Time
 import Data.Either (rights)
 import Control.Monad.State
 import Control.Applicative ((<|>))
+import Text.Blaze.Html.Renderer.String
+import Text.Hamlet
 import System.Environment      (getEnv)
 
 data OrgTitle = OrgTitle { otitle      :: String
@@ -148,12 +151,16 @@ nodeLevel :: Node OrgTitle -> Maybe Int
 nodeLevel (Node el _ _) = Just $ olevel el
 nodeLevel None          = Nothing
 
-childrenTimeStamps :: Node OrgTitle -> [OrgTimeStamp]
-childrenTimeStamps = foldMap ((`mappend` []) . otimestamps)
-
 nodeTimeStamps :: Node OrgTitle -> [OrgTimeStamp]
 nodeTimeStamps None = []
 nodeTimeStamps (Node title' _ _) = otimestamps title'
+
+nodeLocation :: Node OrgTitle -> Maybe String
+nodeLocation None = Nothing
+nodeLocation node = titleLocation $ nodeTitle node
+
+childrenTimeStamps :: Node OrgTitle -> [OrgTimeStamp]
+childrenTimeStamps = foldMap ((`mappend` []) . otimestamps)
 
 hasAliveTime :: Node OrgTitle -> Bool
 hasAliveTime = not . null. filter notCloseOrInActive . nodeTimeStamps
@@ -176,10 +183,6 @@ notChildrenTODO :: Node OrgTitle -> Bool
 notChildrenTODO None               = False
 notChildrenTODO (Node name _ None) = not $ isJust $ otodo name
 notChildrenTODO o@(Node _ _ child) = notTODO o || notChildrenTODO child
-
-nodeLocation :: Node OrgTitle -> Maybe String
-nodeLocation None = Nothing
-nodeLocation node = titleLocation $ nodeTitle node
 
 titleLocation :: OrgTitle -> Maybe String
 titleLocation = loop . oproperties
@@ -240,15 +243,28 @@ setNodeValue _ None = None
 setNodeValue v (Node a None None) =
   let orgtitle =
         case v of
-          ValueTimeStamp s -> let current = otimestamps a in a { otimestamps = s:current }
-          ValueTags t      -> let current = otags a       in a { otags = t ++ current }
-          ValueProperty op -> let current = oproperties a in a { oproperties = op:current }
-       -- ValueLink s      -> let current = oparagraph a  in a { oparagraph = s:current }
-          ValueOther s     -> let current = oparagraph a  in a { oparagraph = current <> s }
-          _                -> a
+          ValueTimeStamp s
+            -> let current = otimestamps a in a { otimestamps = s:current }
+          ValueTags t
+            -> let current = otags a in a { otags = t ++ current }
+          ValueProperty op
+            -> let current = oproperties a in a { oproperties = op:current }
+          ValueLink _ _
+            -> let current = oparagraph a in
+                 a { oparagraph = current <> htmlLink v }
+          ValueOther s
+            -> let current = oparagraph a  in a { oparagraph = current <> s }
+          _ -> a
   in pure orgtitle
 setNodeValue v (Node a n@(Node _ _ _) c) = Node a (setNodeValue v n) c
 setNodeValue v (Node a n c@(Node _ _ _)) = Node a n (setNodeValue v c)
+
+htmlLink :: OrgValue -> String
+htmlLink (ValueLink url Nothing) =
+  renderHtml [shamlet|<a href="#{url}">#{url}</a>|]
+htmlLink (ValueLink url (Just expr)) =
+  renderHtml [shamlet|<a href="#{url}">#{expr}</a>|]
+htmlLink _ = mempty
 
 orgLineNode :: [String] -> Node OrgTitle
 orgLineNode orglines =
