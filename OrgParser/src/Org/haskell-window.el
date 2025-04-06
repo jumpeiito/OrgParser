@@ -51,5 +51,7 @@
       (minibuffer-message annot)
       (sit-for 5))))
 
+
+
 (define-key haskell-mode-map "\C-ck" 'inf-haskell-file-load)
 (define-key haskell-mode-map "\C-ct" 'inf-haskell-type-annotation2)

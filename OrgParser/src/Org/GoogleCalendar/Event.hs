@@ -9,24 +9,27 @@ module Org.GoogleCalendar.Event
     CalendarEvent (..)
   , AlmostEqual (..)
   , EdibleEqual (..)
+  , ColorEvent (..)
   , eventDefault
   , testEvent
   , Q (..)
   , ComposeString (..)
   , ComposeDate (..)
+  , isPersonal
   , matchQuery
   , matchQueryOr
   )
 where
 
-import  Data.Maybe              (fromMaybe, fromJust, isNothing)
+import  Data.Maybe              (fromMaybe, fromJust, isNothing, isJust)
 import  Data.Either             (fromRight, isLeft)
 import  Data.Aeson
 import  Data.Aeson.Types hiding (parse)
+import  qualified Data.Aeson.KeyMap as AK
 import  Data.Time
 import  Data.Time.Calendar
 import  Data.Time.Calendar.OrdinalDate
-import  Data.List               (inits, tails)
+import  Data.List               (inits, tails, isPrefixOf)
 import  qualified Data.Map.Strict as M
 import  Text.Parsec
 import  Data.Functor.Const
@@ -49,6 +52,7 @@ newtype EdibleEqual = Edible { runEdible :: CalendarEvent }
   deriving (Show)
 newtype AlmostEqual = Almost { runAlmost :: CalendarEvent }
   deriving (Show)
+newtype ColorEvent = ColEV { runColEV :: CalendarEvent }
 
 instance Eq EdibleEqual where
   Edible (CalendarEvent _ _ _ _ _ _ st sumry _ _ _) ==
@@ -64,6 +68,11 @@ instance Eq AlmostEqual where
       && (st == st')
       && (sumry == sumry')
       && (loc == loc')
+
+instance Show ColorEvent where
+  show (ColEV e) = eventSummary e
+                   ++ " Color: "
+                   ++ mempty `fromMaybe` eventColorID e
 
 eventDefault :: CalendarEvent
 eventDefault =
@@ -83,7 +92,8 @@ eventDefault =
 
 testEvent :: CalendarEvent
 testEvent =
-  eventDefault { eventDescription = Just "test"
+  eventDefault { eventDescription = Just "<a href=\"http://foo\">hoge</a>"
+
                , eventEnd = Just $ UTCTime (fromGregorian 2025 4 1) (secondsToDiffTime 0)
                , eventEtag = "test etag"
                , eventIcalUID = "testUID"
@@ -91,20 +101,21 @@ testEvent =
                , eventStart = Just $ UTCTime (fromGregorian 2025 3 31) (secondsToDiffTime 0)
                , eventSummary = "test summary"
                , eventLocation = Just "京建労会館"
-               , eventColorID  = mempty }
+               , eventColorID  = Just "11" }
 
 instance FromJSON CalendarEvent where
   parseJSON (Object v) =
-    let startParse = toUTCTime <$> (v .: "start") -- Parse (Maybe UTCTime)
-        endParse   = toUTCTime <$> (v .: "end")   -- Parse (Maybe UTCTime)
-        endTime    = repairTime <$> startParse <*> endParse
-        oneDayS    = 24 * 60 * 60
-        repairTime stMaybe enMaybe =
-          let predicates = [(/= stMaybe), (> (addUTCTime oneDayS <$> stMaybe))] in
-            case and (map ($ enMaybe) predicates) of
-              True  -> UTCTime <$> (pred <$> utctDay <$> enMaybe)
-                               <*> (utctDayTime <$> enMaybe)
-              False -> enMaybe
+    let
+      startParse = toUTCTime <$> (v .: "start") -- Parse (Maybe UTCTime)
+      endParse   = toUTCTime <$> (v .: "end")   -- Parse (Maybe UTCTime)
+      endTime    = repairTime <$> startParse <*> endParse
+      oneDayS    = 24 * 60 * 60
+      repairTime stMaybe enMaybe =
+        let predicates = [(/= stMaybe), (> (addUTCTime oneDayS <$> stMaybe))] in
+          case and (map ($ enMaybe) predicates) of
+            True  -> UTCTime <$> (pred <$> utctDay <$> enMaybe)
+                             <*> (utctDayTime <$> enMaybe)
+            False -> enMaybe
     in
     CalendarEvent <$> (parse dateGreenWichParse "" <$> (v .: "created"))
                   <*> (v .:? "description")
@@ -122,28 +133,39 @@ instance FromJSON CalendarEvent where
     (typeMismatch "Object" invalid)
 
 instance ToJSON CalendarEvent where
-  toJSON (CalendarEvent _ dsc en etag _ _ st smry _ loc _) =
+  toJSON (CalendarEvent _ dsc en etag _ _ st smry _ loc color) =
     case (timeObject <$> st <*> en) of
       Nothing -> error "CalendarEvent ToJSON instance error"
       Just (st', en') ->
-        object [ "etag"        .= etag
-               , "summary"     .= smry
-               , "description" .= dsc
-               , "location"    .= mempty `fromMaybe` loc
-               , "start"       .= st'
-               , "end"         .= en' ]
+        case color of
+          Just cidx -> object [ "etag"        .= etag
+                              , "summary"     .= smry
+                              , "description" .= dsc
+                              , "location"    .= mempty `fromMaybe` loc
+                              , "start"       .= st'
+                              , "end"         .= en'
+                              , "colorId"     .= cidx ]
+          Nothing  ->  object [ "etag"        .= etag
+                              , "summary"     .= smry
+                              , "description" .= dsc
+                              , "location"    .= mempty `fromMaybe` loc
+                              , "start"       .= st'
+                              , "end"         .= en']
 
 instance Show CalendarEvent where
-  show (CalendarEvent _ d e _ _ _ s summary _ _ col) =
-    let st = mempty `fromMaybe` (show <$> s)
-        en = mempty `fromMaybe` (show <$> e) in
-    st
-    ++ "->"
-    ++ en
-    ++ " : "
-    ++ summary
-    ++ ":"
-    ++ mempty `fromMaybe` col
+  show (CalendarEvent _ d e _ _ _ s summary _ loc col) =
+    let
+      st = mempty `fromMaybe` (show <$> s)
+      en = mempty `fromMaybe` (show <$> e)
+    in
+      st
+      ++ "->"
+      ++ en
+      ++ " : "
+      ++ summary
+      ++ ":"
+      ++ mempty `fromMaybe` loc
+      ++ mempty `fromMaybe` d
 
 instance Ord CalendarEvent where
   (CalendarEvent _ _ _ _ _ _ s1 _ _ _ _) `compare`
@@ -171,8 +193,11 @@ dateParse = do
                                       , count 2 digit <* string ":"
                                       , count 2 digit]
 
+toJapaneseTime :: UTCTime -> UTCTime
+toJapaneseTime = ((9 * 3600) `addUTCTime`)
+
 dateGreenWichParse :: Parsec String () UTCTime
-dateGreenWichParse = ((9 * 3600) `addUTCTime`) <$> dateParse
+dateGreenWichParse = toJapaneseTime <$> dateParse
 
 jpTimeLocale :: TimeLocale
 jpTimeLocale =
@@ -220,6 +245,11 @@ timeObject st en
     (makeTimeObject GDate st, makeTimeObject GDate en)
   | otherwise =
     (makeTimeObject GDateTime st, makeTimeObject GDateTime en)
+
+isPersonal :: CalendarEvent -> Bool
+isPersonal ev = case eventDescription ev of
+                  Just d  -> "Tasks/私用" `isPrefixOf` d
+                  Nothing -> False
 
 --------------------------------------------------
 -- Query

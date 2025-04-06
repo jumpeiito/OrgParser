@@ -17,6 +17,7 @@ import  Data.Maybe              (fromMaybe)
 import  Data.Text               (Text)
 import  Data.Aeson
 import  Data.Aeson.Types
+import  Data.String.Conversions (convertString)
 import  qualified Data.ByteString.Lazy as B
 import  Network.HTTP.Req
 import  System.Environment
@@ -25,7 +26,7 @@ data Client =
   Client { clientID     :: String
          , clientSecret :: String
          , clientOauth  :: Oauth
-         , permisson    :: String }
+         , permission    :: String }
   deriving (Show)
 
 data Oauth =
@@ -160,33 +161,42 @@ aliveAccessToken = do
     True  -> (accessToken . clientOauth) <$> ask
     False -> refreshAccessToken
 
--- initialGetToken :: IO ()
--- initialGetToken = do
---   config <- fromAccessJSON
---   case config of
---     Nothing   -> return ()
---     Just cmap ->
---       runReq defaultHttpConfig $ do
---         res <- req
---                POST
---                googleOauthTokenServer
---                NoReqBody
---                jsonResponse
---                query
---         liftIO $ print (responseBody res :: Value)
---           where
---             params :: [(Text, String)]
---             params =
---               [ ("code",          cmap M.! "permission_code")
---               , ("client_id" ,    cmap M.! "client_id")
---               , ("client_secret", cmap M.! "client_secret")
---               , ("redirect_uri",  cmap M.! "redirect_uri")
---               , ("grant_type",    "authorization_code")]
---             query  = foldMap (uncurry (=:)) params
-
+---- https://note.com/daddysoffice/n/n8505a8ae8e98 この通りにやればできた
+---- https://accounts.google.com/o/oauth2/v2/auth?scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar&access_type=offline&redirect_uri=http%3A%2F%2Flocalhost&response_type=code&client_id= <-ここに入れてブラウザでアクセスすると,認証コードが出る
+getRefreshToken :: IO ()
+getRefreshToken = do
+  config <- clientFromFile
+  let params :: [(Text, String)]
+      params = [ ("code",          permission config)
+               , ("client_id" ,    clientID config)
+               , ("client_secret", clientSecret config)
+               , ("redirect_uri",  "http://localhost")
+               , ("grant_type",    "authorization_code")
+               , ("access_type",   "offline")
+               ]
+      query  = foldMap (uncurry (=:)) params
+  runReq defaultHttpConfig $ do
+    res <- req
+           POST
+           googleOauthTokenServer
+           NoReqBody
+           jsonResponse
+           query
+    liftIO $ print (responseBody res :: Value)
 
 -- getPermissionCode :: IO ()
 -- getPermissionCode = do
+--   config <- clientFromFile
+--   let url :: Url 'Https
+--       url = https "accounts.google.com" /: "o" /: "oauth2" /: "auth"
+--       params :: [(Text, String)]
+--       params = [ ("scope", "https://www.googleapis.com/auth/calendar")
+--                , ("access_type", "offline")
+--                , ("include_granted_scopes", "true")
+--                , ("redirect_uri", "http://localhost:5173/callback")
+--                , ("response_type", "code")
+--                , ("client_id", clientID config)]
+--       query  = foldMap (uncurry (=:)) params
 --   runReq defaultHttpConfig $ do
 --     res <- req
 --            GET
@@ -196,14 +206,3 @@ aliveAccessToken = do
 --            query
 --     liftIO $
 --       B.writeFile "c:/Users/Jumpei/Documents/home/OrgFiles/perm.html" (convertString $ responseBody res)
---       where
---         url :: Url 'Https
---         url = https "accounts.google.com" /: "o" /: "oauth2" /: "auth"
---         params :: [(Text, String)]
---         params = [ ("scope", "https://www.googleapis.com/auth/calendar")
---                  , ("access_type", "offline")
---                  , ("include_granted_scopes", "true")
---                  , ("redirect_uri", "http://localhost:8080")
---                  , ("response_type", "code")
---                  , ("client_id", "640571541626-tnr6ur4ufaj6diblv4kknne8lvqocloq.apps.googleusercontent.com")]
---         query  = foldMap (uncurry (=:)) params

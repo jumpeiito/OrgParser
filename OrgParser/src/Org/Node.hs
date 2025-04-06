@@ -198,7 +198,15 @@ titleLocation = loop . oproperties
 --     loop s ((OrgOther o):xs) = loop (s <> o) xs
 --     loop s (_:xs) = loop s xs
 testNode1, testNode2 :: Node OrgTitle
-testNode1 = pure $ def { olevel = 1, otitle = "node1" }
+testNode1 =
+  pure $ def { olevel = 1, otitle = "node1"
+             , otimestamps = [OrgTimeStamp { obegin = UTCTime (fromGregorian 2025 4 1)
+                                                             (secondsToDiffTime 0)
+                                          , odatetype = Normal
+                                          , oactive = True
+                                          , oend = Nothing }]}
+testLink = ValueLink "http://hoge" (Just "foo")
+
 testNode2 = pure $ def { olevel = 2, otitle = "node2" }
 
 testTitles :: [OrgTitle]
@@ -261,9 +269,11 @@ setNodeValue v (Node a n c@(Node _ _ _)) = Node a n (setNodeValue v c)
 
 htmlLink :: OrgValue -> String
 htmlLink (ValueLink url Nothing) =
-  renderHtml [shamlet|<a href="#{url}">#{url}</a>|]
+  -- renderHtml [shamlet|<a href="#{url}">#{url}|]
+  concat ["<a href=\"", url, "\">", url, "</a>"]
 htmlLink (ValueLink url (Just expr)) =
-  renderHtml [shamlet|<a href="#{url}">#{expr}</a>|]
+  -- renderHtml [shamlet|<a href="#{url}">#{expr}|]
+  concat ["<a href=\"", url, "\">", expr, "</a>"]
 htmlLink _ = mempty
 
 orgLineNode :: [String] -> Node OrgTitle

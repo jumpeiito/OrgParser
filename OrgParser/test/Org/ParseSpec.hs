@@ -220,12 +220,12 @@ spec = do
     -- it "orgPropertyParse5" $ do
     --   parse orgPropertyParse "" ":CUSTOM_ID: 2 04" `shouldBe`
     --     Right (OrgProperty ("CUSTOM_ID", "2 04"))
-    -- it "orgLinkParse1" $ do
-    --   parse orgLinkParse "" "[[http://www.google.co.jp]]" `shouldBe`
-    --     Right (OrgLink "http://www.google.co.jp" Nothing)
-    -- it "orgLinkParse2" $ do
-    --   parse orgLinkParse "" "[[http://www.google.co.jp][Google]]" `shouldBe`
-    --     Right (OrgLink "http://www.google.co.jp" (Just "Google"))
+    it "orgLinkParse1" $ do
+      parse orgLinkParse "" "[[http://www.google.co.jp]]" `shouldBe`
+        Right (ParserLink "http://www.google.co.jp" Nothing)
+    it "orgLinkParse2" $ do
+      parse orgLinkParse "" "[[http://www.google.co.jp][Google]]" `shouldBe`
+        Right (ParserLink "http://www.google.co.jp" (Just "Google"))
     -- it "orgTitleLineCoreParse1" $ do
     --   parse orgTitleLineCoreParse "" "** Org Test 1 <2024-12-22 @> :buz:boo:" `shouldBe`
     --     Right [ OrgTitle { title = "Org Test 1 ", level = 2, todo = Nothing, children = []}

@@ -13,7 +13,7 @@ module Org.Parse
   , orgTitleParse
   , orgLineParse
   -- , orgPropertyParse
-  -- , orgLinkParse
+  , orgLinkParse
   , orgTitleLineCoreParse
   -- , orgOtherLineCoreParse
   -- , timeToDiffTime
