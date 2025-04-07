@@ -1,5 +1,5 @@
-{-# LANGUAGE InstanceSigs, DeriveFunctor, DeriveFoldable, FlexibleContexts, ScopedTypeVariables, FlexibleInstances #-}
-{-# LANGUAGE OverloadedStrings, QuasiQuotes #-}
+{-# LANGUAGE InstanceSigs, FlexibleContexts, ScopedTypeVariables, FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Org.Node
   (
     Node (..)
@@ -28,8 +28,8 @@ import Data.Time
 import Data.Either (rights)
 import Control.Monad.State
 import Control.Applicative ((<|>))
-import Text.Blaze.Html.Renderer.String
-import Text.Hamlet
+-- import Text.Blaze.Html.Renderer.String
+-- import Text.Hamlet
 import System.Environment      (getEnv)
 
 data OrgTitle = OrgTitle { otitle      :: String
@@ -48,12 +48,12 @@ newtype DebugPrint = Dp OrgTitle
 instance Show DebugPrint where
   show (Dp ttl) =
     let level' = olevel ttl in
-    (take level' $ repeat ' ')
-    ++ show level'
-    ++ " : "
-    ++ otitle ttl
-    ++ " -> "
-    ++ show (otimestamps ttl)
+      replicate level' ' '
+      ++ show level'
+      ++ " : "
+      ++ otitle ttl
+      ++ " -> "
+      ++ show (otimestamps ttl)
 
 data OrgTimeStamp = OrgTimeStamp { obegin    :: UTCTime
                                  , odatetype :: OrgTimeStampType
@@ -61,7 +61,7 @@ data OrgTimeStamp = OrgTimeStamp { obegin    :: UTCTime
                                  , oend      :: Maybe UTCTime }
   deriving (Show, Eq)
 
-data OrgProperty = OrgProperty (String, String)
+newtype OrgProperty = OrgProperty (String, String)
   deriving (Show, Eq)
 
 data OrgValue = ValueTimeStamp OrgTimeStamp
@@ -108,7 +108,7 @@ instance Eq EQNode where
   EQN None == EQN _    = False
   EQN _ == EQN None    = False
   EQN (Node n1 _ _) == EQN (Node n2 _ _)
-    | olevel n1 `compare` olevel n2 == EQ = True
+    | olevel n1 == olevel n2 = True
     | otherwise = False
 
 instance Ord EQNode where
@@ -163,32 +163,32 @@ childrenTimeStamps :: Node OrgTitle -> [OrgTimeStamp]
 childrenTimeStamps = foldMap ((`mappend` []) . otimestamps)
 
 hasAliveTime :: Node OrgTitle -> Bool
-hasAliveTime = not . null. filter notCloseOrInActive . nodeTimeStamps
+hasAliveTime = not . any notCloseOrInActive . nodeTimeStamps
   where
     notCloseOrInActive :: OrgTimeStamp -> Bool
     notCloseOrInActive timestamp =
-      ((odatetype timestamp) /= Closed) && ((oactive timestamp) /= False)
+      (odatetype timestamp /= Closed) && (oactive timestamp)
 
 hasChildrenAliveTime :: Node OrgTitle -> Bool
 hasChildrenAliveTime None               = False
 hasChildrenAliveTime o@(Node _ _ None)  = hasAliveTime o
 hasChildrenAliveTime o@(Node _ _ child) =
-  (hasAliveTime o) || (hasAliveTime child)
+  hasAliveTime o || hasAliveTime child
 
 notTODO :: Node OrgTitle -> Bool
 notTODO None = False
-notTODO (Node title' _ _) = not . isJust . otodo $ title'
+notTODO (Node title' _ _) = isNothing . otodo $ title'
 
 notChildrenTODO :: Node OrgTitle -> Bool
 notChildrenTODO None               = False
-notChildrenTODO (Node name _ None) = not $ isJust $ otodo name
+notChildrenTODO (Node name _ None) = isNothing $ otodo name
 notChildrenTODO o@(Node _ _ child) = notTODO o || notChildrenTODO child
 
 titleLocation :: OrgTitle -> Maybe String
 titleLocation = loop . oproperties
   where
     loop [] = Nothing
-    loop ((OrgProperty ("LOCATION", val)):_) = Just val
+    loop (OrgProperty ("LOCATION", val):_) = Just val
     loop (_:xs) = loop xs
 
 -- nodeDescription :: OrgNodeElement -> String
@@ -201,7 +201,7 @@ testNode1, testNode2 :: Node OrgTitle
 testNode1 =
   pure $ def { olevel = 1, otitle = "node1"
              , otimestamps = [OrgTimeStamp { obegin = UTCTime (fromGregorian 2025 4 1)
-                                                             (secondsToDiffTime 0)
+                                                              (secondsToDiffTime 0)
                                           , odatetype = Normal
                                           , oactive = True
                                           , oend = Nothing }]}
@@ -213,18 +213,18 @@ testTitles :: [OrgTitle]
 testTitles = [def {olevel=1}, def {olevel=2}, def {olevel=3}, def {olevel=3}]
 -- nextNode :: a -> OrgNode a
 
-addNode :: (Node OrgTitle) -> (Node OrgTitle) -> (Node OrgTitle)
+addNode :: Node OrgTitle -> Node OrgTitle -> Node OrgTitle
 addNode newn oldn = loop newn oldn `evalState` mempty
   where
     setPath :: Node OrgTitle -> State [String] (Node OrgTitle)
     setPath node = do
       path <- get
       let t1 = nodeTitle node
-      return $ pure $ t1 { opath = (nodeTitleString node) : path }
-    loop :: (Node OrgTitle) -> (Node OrgTitle) -> State [String] (Node OrgTitle)
+      return $ pure $ t1 { opath = nodeTitleString node : path }
+    loop :: Node OrgTitle -> Node OrgTitle -> State [String] (Node OrgTitle)
     loop n None    = setPath n
     loop None n    = return n
-    loop n (Node a next@(Node _ _ _) c)
+    loop n (Node a next@Node{} c)
                    = do { nex' <- loop n next; return $ Node a nex' c }
     loop n o@(Node a None c)
       | EQN n == EQN o = do { nex <- setPath n; return $ Node a nex c }
@@ -238,8 +238,8 @@ addNode newn oldn = loop newn oldn `evalState` mempty
 element2Node :: Element -> Node OrgTitle -> Node OrgTitle
 element2Node el node =
   case el of
-    ParserTitle _ _ _ _ _   -> (pure $ fromParse el) `addNode` node
-    ParserTimeStamp _ _ _ _ -> ValueTimeStamp (fromParse el) `setNodeValue` node
+    ParserTitle{}           -> pure (fromParse el) `addNode` node
+    ParserTimeStamp{}       -> ValueTimeStamp (fromParse el) `setNodeValue` node
     ParserTags t            -> ValueTags t                   `setNodeValue` node
     ParserProperty p        -> ValueProperty (OrgProperty p) `setNodeValue` node
     ParserLink d e          -> ValueLink d e                 `setNodeValue` node
@@ -262,10 +262,10 @@ setNodeValue v (Node a None None) =
                  a { oparagraph = current <> htmlLink v }
           ValueOther s
             -> let current = oparagraph a  in a { oparagraph = current <> s }
-          _ -> a
+          -- _ -> a
   in pure orgtitle
-setNodeValue v (Node a n@(Node _ _ _) c) = Node a (setNodeValue v n) c
-setNodeValue v (Node a n c@(Node _ _ _)) = Node a n (setNodeValue v c)
+setNodeValue v (Node a n@Node{} c) = Node a (setNodeValue v n) c
+setNodeValue v (Node a n c@Node{}) = Node a n (setNodeValue v c)
 
 htmlLink :: OrgValue -> String
 htmlLink (ValueLink url Nothing) =
@@ -293,7 +293,7 @@ nodeCollectList f node@(Node a n c) =
     False -> second
 
 normalFilter :: Node OrgTitle -> Bool
-normalFilter node = (hasAliveTime node) && (notTODO node)
+normalFilter node = hasAliveTime node && notTODO node
 
 titleToCalendarEvent :: OrgTimeStamp -> OrgTitle -> CalendarEvent
 titleToCalendarEvent stamp ttl' =

@@ -51,7 +51,22 @@
       (minibuffer-message annot)
       (sit-for 5))))
 
+(defun inf-haskell-multi-occur-root-directory
+    (filename)
+  (let ((dir (file-name-parent-directory filename)))
+    (if (directory-files dir nil ".*cabal")
+        dir
+      (inf-haskell-multi-occur-root-directory dir))))
 
+(defun inf-haskell-multi-occur ()
+  (interactive)
+  (let* ((bufname (buffer-file-name (current-buffer)))
+         (root (inf-haskell-multi-occur-root-directory bufname))
+         (haskell-files (remove-if
+                         (lambda (file) (string-match ".stack-work" file))
+                         (directory-files-recursively root ".*.hs$"))))
+    (minibuffer-message
+     (apply 'concat haskell-files))))
 
 (define-key haskell-mode-map "\C-ck" 'inf-haskell-file-load)
 (define-key haskell-mode-map "\C-ct" 'inf-haskell-type-annotation2)

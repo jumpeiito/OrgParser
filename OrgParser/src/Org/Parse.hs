@@ -22,6 +22,7 @@ module Org.Parse
 where
 
 import Data.Time
+import Data.Proxy
 import qualified Data.List as Dl
 import Text.Parsec
 import Control.Monad
@@ -56,7 +57,7 @@ orgTagsParse = do
   tagname <- char ':'
              *> many1 (noneOf " :\t\n")
              <* lookAhead (char ':')
-  ParserTags loop <- (try orgTagsParse <|> (return $ ParserTags []))
+  ParserTags loop <- try orgTagsParse <|> return (ParserTags [])
   return $ ParserTags (tagname:loop)
   -- ---tags-----------------------------------------------------
 
@@ -92,7 +93,7 @@ orgDateCoreParse = do
     try (space >> orgTimeParse) <|> return (0,0)
   return $ makeUTC y m d h mi
   where
-    makeDay y m d = fromGregorian (toInteger y) m d
+    makeDay y = fromGregorian (toInteger y)
     makeTime h mi = timeToDiffTime (h, mi)
     makeUTC y m d h mi = UTCTime (makeDay y m d) (makeTime h mi)
 
@@ -101,10 +102,10 @@ orgDateCoreParseRefine = do
   (y, m, d)     <- orgDateYMDParse <* space <* anyChar
   ((h, mi), en) <- try both <|> try startOnly <|> try donthit
     -- ((oneOf "月火水木金土日") >> space >> orgTimeParse) <|> return (0,0)
-  return $ ( makeUTC y m d h mi
-           , uncurry (makeUTC y m d) <$> en)
+  return ( makeUTC y m d h mi
+         , uncurry (makeUTC y m d) <$> en)
   where
-    makeDay y m d = fromGregorian (toInteger y) m d
+    makeDay y = fromGregorian (toInteger y)
     makeTime h mi = timeToDiffTime (h, mi)
     makeUTC y m d h mi = UTCTime (makeDay y m d) (makeTime h mi)
     -- <2025-04-17 木 10:00-12:00>
@@ -113,12 +114,12 @@ orgDateCoreParseRefine = do
       end'   <- Just <$> orgTimeParse
       return (start', end')
     -- <2025-04-17 木 10:00>
-    startOnly = (flip (,) Nothing) <$> (space *> orgTimeParse)
+    startOnly = flip (,) Nothing <$> (space *> orgTimeParse)
     -- <2025-04-17 木>
     donthit   = return ((0, 0), Nothing)
 
 orgTimeStampTypeParse :: Parser OrgTimeStampType
-orgTimeStampTypeParse = do
+orgTimeStampTypeParse =
   anyHit (map try [schedule, deadline, closed]) <|> return Normal
   where
     schedule = string "SCHEDULED: " >> return Scheduled
@@ -148,14 +149,14 @@ orgTimeStampParse = do
     acore       = (,) True  <$> dateP '<' '>'
     icore       = (,) False <$> dateP '[' ']'
     rangesep    = many space >> char '-' >> many space
-    endTime     = try (rangesep >> (Just . fst . snd) <$> acore)
+    endTime     = try (rangesep >> Just . fst . snd <$> acore)
                   <|> return Nothing
 
 timeToDiffTime :: (Int, Int) -> DiffTime
 timeToDiffTime (h, m) =
-  secondsToDiffTime $ (toInteger h) * 3600 + (toInteger m) * 60
+  secondsToDiffTime $ toInteger h * 3600 + toInteger m * 60
 
-anyHit :: [(ParsecT s u m a)] -> ParsecT s u m a
+anyHit :: [ParsecT s u m a] -> ParsecT s u m a
 anyHit (p:parsers) = foldl (<|>) p parsers
 anyHit _ = undefined
 
@@ -189,22 +190,20 @@ orgTitleParse = do
       tags' <- orgTagsParse
       return (tags', [time'])
     stopper      = anyHit $ map try [ stopper_both, stopper_time, stopper_tags ]
-    titlep       = (try $ untilStopper stopper) <|>  many anyChar
+    titlep       = try (untilStopper stopper) <|>  many anyChar
 -- -- ---title----------------------------------------------------
 
 -- -- ---property-------------------------------------------------
 orgPropertyParse :: Parser Element
-orgPropertyParse = do
-  ParserProperty <$> ((,) <$> pname <*> pval)
+orgPropertyParse = ParserProperty <$> ((,) <$> pname <*> pval)
   where
     pname = char ':' *> many1 (noneOf ":\n") <* char ':'
-    pval  = many space >> ((:) <$> (satisfy (/= ' ')) <*> many anyToken)
+    pval  = many space >> ((:) <$> satisfy (/= ' ') <*> many anyToken)
 -- -- ---property-------------------------------------------------
 
 -- -- ---link-----------------------------------------------------
 orgLinkParse :: Parser Element
-orgLinkParse = do
-  try link1 <|> try link2
+orgLinkParse = try link1 <|> try link2
   where
     link1 = do
       link <- string "[[" *> many1 (satisfy (/= ']')) <* string "]]"
@@ -219,7 +218,7 @@ orgLinkParse = do
 
 -- -- ---lineBreak------------------------------------------------
 orgLineBreakParse :: Parser Element
-orgLineBreakParse = do
+orgLineBreakParse =
   string "# linebreak" >> return ParserLineBreak
 -- -- ---lineBreak------------------------------------------------
 
@@ -234,7 +233,7 @@ orgTitleLineCoreParse = (:[]) <$> orgTitleParse
   --   tags'      = (Just <$> orgTagsParse <|> return Nothing)
 
 orgOtherLineCoreParse :: Parser [Element]
-orgOtherLineCoreParse = do
+orgOtherLineCoreParse =
   (eof >> return [])
     <|> anyHit (map tryF parses)
     <|> tryF other
@@ -246,22 +245,22 @@ orgOtherLineCoreParse = do
     orgOther = try (ParserOther <$> many anyToken)
 
 orgPropertyLineCoreParse :: Parser [Element]
-orgPropertyLineCoreParse = do
+orgPropertyLineCoreParse =
   (:) <$> orgPropertyParse <*> return []
 
 orgLineBreakCoreParse :: Parser [Element]
-orgLineBreakCoreParse = do
+orgLineBreakCoreParse =
   (:) <$> orgLineBreakParse <*> return []
 
 orgLineCoreParse :: Parser [Element]
-orgLineCoreParse = do
+orgLineCoreParse =
   try orgTitleLineCoreParse
   <|> orgPropertyLineCoreParse
   <|> orgLineBreakCoreParse
   <|> orgOtherLineCoreParse
 
 orgLineParse :: String -> Either ParseError [Element]
-orgLineParse s = parse orgLineCoreParse "" s
+orgLineParse = parse orgLineCoreParse ""
 -- -- ---line-----------------------------------------------------
 mktime :: Integer -> Int -> Int -> Int -> Int -> UTCTime
 mktime y mo d h mi = UTCTime (fromGregorian y mo d) (timeToDiffTime (h, mi))

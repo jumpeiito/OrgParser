@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes       #-}
 {-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE LambdaCase        #-}
 module Org.ICS
   (
     getGoogleCalendarList
@@ -17,7 +17,7 @@ import  Data.Aeson.Types
 import  Data.Maybe              (fromJust)
 import  Data.String.Conversions (convertString)
 import  Control.Monad           (forM_)
-import  Control.Monad.Reader    (ask, runReaderT, liftIO)
+import  Control.Monad.Reader    (ask, runReaderT, liftIO, asks)
 import  Network.HTTP.Req
 import  Org.Node                (orgFileNode, nodeToCalendarEvents, orgFile)
 import  Org.GoogleCalendar.Client
@@ -81,6 +81,12 @@ headerAuthorization :: String -> Option scheme
 headerAuthorization atoken =
   header "Authorization" ("Bearer " <> convertString atoken)
 
+accessTokenPair :: IO (String, Client)
+accessTokenPair = do
+  c <- clientFromFile
+  a <- aliveAccessToken `runReaderT` c
+  return (a, c)
+
 getGoogleCalendarList :: Calendar -> WithAccessToken [CalendarEvent]
 getGoogleCalendarList cal = sort <$> loop Nothing []
   where
@@ -95,7 +101,7 @@ getGoogleCalendarPage ::
   Calendar ->
   WithAccessToken CalendarResponse
 getGoogleCalendarPage nextToken cal = do
-  aToken <- fst <$> ask
+  aToken <- asks fst
   runReq defaultHttpConfig $ do
     res <- req GET (url cal) NoReqBody jsonResponse
                (headerAuthorization aToken <> query)
@@ -118,8 +124,8 @@ diffCalendarEvent orgEv gcalEv = map judge orgEv
     almost = map Almost gcalEv
     edible = map Edible gcalEv
     judge ev
-      | (Almost ev `elem` almost) = CeeAlmost ev
-      | (Edible ev `elem` edible) =
+      | Almost ev `elem` almost = CeeAlmost ev
+      | Edible ev `elem` edible =
           let
             k = Edible ev `elemIndex` edible
           in
@@ -130,20 +136,19 @@ diffVerseCalendarEvent ::
   [CalendarEvent] -> -- Org Events
   [CalendarEvent] -> -- Google Calendar Events
   [CalendarEvent]    -- Google events that Org doesn't have
-diffVerseCalendarEvent orgEV gEV = filter judge gEV
+diffVerseCalendarEvent orgEV = filter judge
   where
     almost = map Almost orgEV
     judge ev
-      | (Almost ev `elem` almost) = False
-      | eventColorID ev == (Just "11") = False -- Already Colored Events excepts
+      | Almost ev `elem` almost = False
+      | eventColorID ev == Just "11" = False -- Already Colored Events excepts
       | otherwise = True
 
 updateGoogleCalendar :: Calendar -> IO ()
 updateGoogleCalendar cal = do
   Encoding.setLocaleEncoding Encoding.utf8
-  c        <- clientFromFile
-  aToken   <- aliveAccessToken `runReaderT` c
-  (`runReaderT` (aToken, c)) $ do
+  apair <- accessTokenPair
+  (`runReaderT` apair) $ do
     gcalList <- getGoogleCalendarList cal
     allev    <- nodeToCalendarEvents <$> liftIO (orgFile >>= orgFileNode)
     let events    = filter (filterEvent cal) allev
@@ -159,10 +164,9 @@ edibleEventsReplace cal events =
 
 newEventsInsert :: Calendar -> [CalendarEventEqual] -> WithAccessToken ()
 newEventsInsert cal events =
-    forM_ (filter isCeeNot events) $ \tobeceenot ->
-      case tobeceenot of
-        CeeNot s -> insertEvent cal s
-        _        -> return ()
+  forM_ (filter isCeeNot events) $ \case
+     CeeNot s -> insertEvent cal s
+     _        -> return ()
 
 verseColored :: Calendar -> [CalendarEvent] -> WithAccessToken ()
 verseColored cal = mapM_ eventColored
@@ -172,33 +176,32 @@ verseColored cal = mapM_ eventColored
 
 insertEvent :: Calendar -> CalendarEvent -> WithAccessToken ()
 insertEvent cal ev = do
-  aToken <- fst <$> ask
+  aToken <- asks fst
   runReq defaultHttpConfig $ do
     res  <- req POST (url cal) (ReqBodyJson ev) jsonResponse
               (headerAuthorization aToken)
-    liftIO $ print $ (responseBody res :: Value)
+    liftIO $ print (responseBody res :: Value)
     liftIO $ putStrLn $ eventSummary ev ++ " registered!"
 
 replaceEvent :: Calendar -> CalendarEventEqual -> WithAccessToken ()
 replaceEvent cal (CeeEdible org gcal) = do
-  aToken <- fst <$> ask
+  aToken <- asks fst
   let evid = convertString $ eventID gcal
   let url' = url cal /: evid
   runReq defaultHttpConfig $ do
     res  <- req PUT url' (ReqBodyJson org) jsonResponse
               (headerAuthorization aToken)
-    liftIO $ print $ (responseBody res :: CalendarEvent)
+    liftIO $ print (responseBody res :: CalendarEvent)
     liftIO $ putStrLn $ eventSummary org ++ " replace!"
 replaceEvent _ _ = return ()
 
 searchCalendar :: Calendar -> IO ()
 searchCalendar cal = do
   Encoding.setLocaleEncoding Encoding.utf8
-  c        <- clientFromFile
-  aToken   <- aliveAccessToken `runReaderT` c
-  (`runReaderT` (aToken, c)) $ do
+  apair <- accessTokenPair
+  (`runReaderT` apair) $ do
     gcalList <- getGoogleCalendarList cal
-    oFile    <- liftIO $ orgFile
+    oFile    <- liftIO orgFile
     events   <- nodeToCalendarEvents <$> liftIO (orgFileNode oFile)
     -- let diffs    = diffCalendarEvent events gcalList
     -- forM_ (filter isEdible diffs) replaceEvent
@@ -209,8 +212,7 @@ searchCalendar cal = do
 
 getColors :: IO ()
 getColors = do
-  c      <- clientFromFile
-  aToken <- aliveAccessToken `runReaderT` c
+  (aToken, _) <- accessTokenPair
   let url = https "www.googleapis.com"
             /: "calendar"
             /: "v3"
@@ -218,12 +220,11 @@ getColors = do
   runReq defaultHttpConfig $ do
     res  <- req GET url NoReqBody jsonResponse
               (headerAuthorization aToken)
-    liftIO $ print $ (responseBody res :: GCC.ColorSet)
+    liftIO $ print (responseBody res :: GCC.ColorSet)
     -- liftIO $ putStrLn $ eventSummary org ++ " replace!"
 -- GET https://www.googleapis.com/calendar/v3/colors
 
 
 testInsert = do
-  c <- clientFromFile
-  a <- aliveAccessToken `runReaderT` c
-  insertEvent googleFamilyCalendar testEvent `runReaderT` (a, c)
+  apair <- accessTokenPair
+  insertEvent googleFamilyCalendar testEvent `runReaderT` apair

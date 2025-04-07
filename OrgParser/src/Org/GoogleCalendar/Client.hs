@@ -8,6 +8,7 @@ module Org.GoogleCalendar.Client
   , WithAccessToken
   , clientFromFile
   , aliveAccessToken
+  , getRefreshToken
   )
 where
 
@@ -17,7 +18,7 @@ import  Data.Maybe              (fromMaybe)
 import  Data.Text               (Text)
 import  Data.Aeson
 import  Data.Aeson.Types
-import  Data.String.Conversions (convertString)
+-- import  Data.String.Conversions (convertString)
 import  qualified Data.ByteString.Lazy as B
 import  Network.HTTP.Req
 import  System.Environment
@@ -102,7 +103,7 @@ type WithClient a = ReaderT Client IO a
 type WithAccessToken a = ReaderT (String, Client) IO a
 
 clientFile :: IO FilePath
-clientFile = getEnv "ORG" >>= return . (flip (++) "/access.json")
+clientFile = flip (++) "/access.json" <$> getEnv "ORG"
 
 clientFromFile :: IO Client
 clientFromFile = do
@@ -118,8 +119,9 @@ clientWriteFile c = do
 validateAccessToken :: WithClient Bool
 validateAccessToken = do
   client <- ask
-  let query = foldMap (uncurry (=:)) [("access_token", accessToken $ clientOauth client)]
-  let url = (https "oauth2.googleapis.com" /: "tokeninfo" :: Url 'Https)
+  let opt = [("access_token", accessToken $ clientOauth client)]
+  let query = foldMap (uncurry (=:)) opt
+  let url = https "oauth2.googleapis.com" /: "tokeninfo" :: Url 'Https
   runReq defaultHttpConfig $ do
     _ <- req GET url NoReqBody lbsResponse query
     return True
@@ -140,7 +142,7 @@ refreshAccessToken = do
   let params =
           [ ("client_id" ,    clientID client)
           , ("client_secret", clientSecret client)
-          , ("refresh_token", refreshToken $ clientOauth $ client)
+          , ("refresh_token", refreshToken $ clientOauth client)
           , ("grant_type",    "refresh_token")] :: [(Text, String)]
   let query = foldMap (uncurry (=:)) params
   runReq defaultHttpConfig $ do
@@ -152,13 +154,13 @@ refreshAccessToken = do
         let oldo = clientOauth client
         let newo = oldo { accessToken = newAccessToken }
         liftIO $ clientWriteFile (client { clientOauth = newo })
-        return $ newAccessToken
+        return newAccessToken
 
 aliveAccessToken :: WithClient String
 aliveAccessToken = do
   valid <- validateAccessToken
   case valid of
-    True  -> (accessToken . clientOauth) <$> ask
+    True  -> asks $ accessToken . clientOauth
     False -> refreshAccessToken
 
 ---- https://note.com/daddysoffice/n/n8505a8ae8e98 この通りにやればできた

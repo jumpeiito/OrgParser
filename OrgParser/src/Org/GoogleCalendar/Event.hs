@@ -1,9 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE KindSignatures    #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE KindSignatures    #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE DataKinds #-}
 module Org.GoogleCalendar.Event
   (
     CalendarEvent (..)
@@ -25,12 +24,9 @@ import  Data.Maybe              (fromMaybe, fromJust, isNothing, isJust)
 import  Data.Either             (fromRight, isLeft)
 import  Data.Aeson
 import  Data.Aeson.Types hiding (parse)
-import  qualified Data.Aeson.KeyMap as AK
+import  Data.Kind               (Type)
 import  Data.Time
-import  Data.Time.Calendar
-import  Data.Time.Calendar.OrdinalDate
 import  Data.List               (inits, tails, isPrefixOf)
-import  qualified Data.Map.Strict as M
 import  Text.Parsec
 import  Data.Functor.Const
 
@@ -111,9 +107,11 @@ instance FromJSON CalendarEvent where
       endTime    = repairTime <$> startParse <*> endParse
       oneDayS    = 24 * 60 * 60
       repairTime stMaybe enMaybe =
-        let predicates = [(/= stMaybe), (> (addUTCTime oneDayS <$> stMaybe))] in
-          case and (map ($ enMaybe) predicates) of
-            True  -> UTCTime <$> (pred <$> utctDay <$> enMaybe)
+        let
+          predicates = [(/= stMaybe), (> (addUTCTime oneDayS <$> stMaybe))]
+        in
+          case all ($ enMaybe) predicates of
+            True  -> UTCTime <$> (pred . utctDay <$> enMaybe)
                              <*> (utctDayTime <$> enMaybe)
             False -> enMaybe
     in
@@ -134,26 +132,33 @@ instance FromJSON CalendarEvent where
 
 instance ToJSON CalendarEvent where
   toJSON (CalendarEvent _ dsc en etag _ _ st smry _ loc color) =
-    case (timeObject <$> st <*> en) of
+    case timeObject <$> st <*> en of
       Nothing -> error "CalendarEvent ToJSON instance error"
       Just (st', en') ->
-        case color of
-          Just cidx -> object [ "etag"        .= etag
-                              , "summary"     .= smry
-                              , "description" .= dsc
-                              , "location"    .= mempty `fromMaybe` loc
-                              , "start"       .= st'
-                              , "end"         .= en'
-                              , "colorId"     .= cidx ]
-          Nothing  ->  object [ "etag"        .= etag
-                              , "summary"     .= smry
-                              , "description" .= dsc
-                              , "location"    .= mempty `fromMaybe` loc
-                              , "start"       .= st'
-                              , "end"         .= en']
+        let
+          colorBox
+            | isJust color = [ "colorId" .= fromJust color ]
+            | otherwise    = mempty
+          mainObj = [ "etag"        .= etag
+                    , "summary"     .= smry
+                    , "description" .= dsc
+                    , "location"    .= mempty `fromMaybe` loc
+                    , "start"       .= st'
+                    , "end"         .= en']
+        in
+        object (mainObj <> colorBox)
+        -- case color of
+        --   Just cidx -> object [ "etag"        .= etag
+        --                       , "summary"     .= smry
+        --                       , "description" .= dsc
+        --                       , "location"    .= mempty `fromMaybe` loc
+        --                       , "start"       .= st'
+        --                       , "end"         .= en'
+        --                       , "colorId"     .= cidx ]
+        --   Nothing  ->  object 
 
 instance Show CalendarEvent where
-  show (CalendarEvent _ d e _ _ _ s summary _ loc col) =
+  show (CalendarEvent _ d e _ _ _ s summary _ loc _) =
     let
       st = mempty `fromMaybe` (show <$> s)
       en = mempty `fromMaybe` (show <$> e)
@@ -206,7 +211,7 @@ jpTimeLocale =
                , ("水曜日", "水") , ("木曜日", "木")
                , ("金曜日", "金") , ("土曜日", "土")]
              , months         =
-               [let m = (show x) ++ "月" in (m, m) | x <- ([1..12] :: [Int])]
+               [let m = show x ++ "月" in (m, m) | x <- [1..12] :: [Int]]
              , dateTimeFmt    = ""
              , dateFmt        = ""
              , timeFmt        = ""
@@ -237,7 +242,7 @@ makeTimeObject GDateTime utc' =
 
 timeObject :: UTCTime -> UTCTime -> (Value, Value)
 timeObject st en
-  | (utctDay st /= utctDay en) =
+  | utctDay st /= utctDay en =
     let oneday = 24 * 60 * 60 in
     ( makeTimeObject GDate st
     , makeTimeObject GDate (oneday `addUTCTime` en))
@@ -254,91 +259,6 @@ isPersonal ev = case eventDescription ev of
 --------------------------------------------------
 -- Query
 --------------------------------------------------
--- data QueryContainType = QDescription String
---                       | QID String
---                       | QSummary String
---                       | QLocation String
---                       deriving (Show, Eq)
-
--- data QueryDateType = QCreated QTimeType
---                    | QStart QTimeType
---                    | QEnd QTimeType
---                    | QUpdated QTimeType
---                    deriving (Show, Eq)
-
--- class (Applicative f, Eq (f UTCTime)) =>
---   QueryDateMatch (f :: * -> *) where
---   failPred  :: f UTCTime -> Bool
---   unpure    :: f UTCTime -> UTCTime
---   dmatch    :: QTimeType -> f UTCTime -> Bool
-
---   QDate ds `dmatch` utc
---     | failPred utc == True = False
---     | otherwise   = datesetToUTCTime ds == unpure utc
---   QRange (d1, d2) `dmatch` utc
---     | failPred utc == True = False
---     | otherwise = datesetToUTCTime d1 <= unpure utc
---                     && datesetToUTCTime d2 >= unpure utc
-
--- instance QueryDateMatch Maybe where
---   failPred = isNothing
---   unpure   = fromJust
-
--- instance Eq a => QueryDateMatch (Either a) where
---   failPred = isLeft
---   unpure   = fromRight (UTCTime (fromGregorian 1900 1 1)
---                                 (secondsToDiffTime 0))
-
--- class QueryContains a where
---   translate :: a -> String
---   contains  :: String -> a -> Bool
---   contains [] _ = False
---   contains part s =
---     let subs = translate s in
---     part `elem` (inits subs ++ tails subs)
-
--- instance QueryContains String where
---   translate = id
-
--- instance QueryContains (Maybe String) where
---   translate = (mempty `fromMaybe`)
-
--- class Query a b c where
---   -- query :: b -> (CalendarEvent -> c) -> Bool
---   query    :: (b -> a) -> b -> CalendarEvent -> Bool
---   formula  :: (b -> a) -> (CalendarEvent -> c)
---   criteria :: b -> c -> Bool
---   query constructor val event =
---     criteria val ((formula constructor) event)
-
--- instance QueryContains a => Query QueryContainType String a where
---   formula QDescription = eventDescription
---   formula QID          = eventID
---   formula QSummary     = eventSummary
---   formula QLocation    = eventLocation
-
---   criteria = contains
-
--- instance QueryDateMatch f => Query QTimeType (f UTCTime) where
---   query = dmatch
-  -- unQuery :: a -> b
-
--- instance Query QueryContainType where
---   q1 `query` e = 
--- query :: QueryType -> CalendarEvent -> Bool
--- query (QDescription d) e = d `contains` eventDescription e
--- query (QID d) e          = d `contains` eventID e
--- query (QSummary d) e     = d `contains` eventSummary e
--- query (QLocation d) e    = d `contains` eventLocation e
--- query (QCreated d) e  = d `dmatch` eventCreated e
--- query (QUpdated d) e  = d `dmatch` eventUpdated e
--- query (QStart d) e    = d `dmatch` eventStart e
--- query (QEnd d) e      = d `dmatch` eventEnd e
-
--- CalendarEvent -> Maybe String
--- CalendarEvent -> String
--- CalendarEvent -> Maybe UTCTime
--- CalendarEvent -> Either ParseError UTCTime
 type DateSet = (Integer, Int, Int)
 
 data Q = QContains String
@@ -351,7 +271,7 @@ data Q = QContains String
        | QDay Int
        | QDayOfWeek DayOfWeek
 
-class Applicative f => ComposeDate (f :: * -> *) where
+class Applicative f => ComposeDate (f :: Type -> Type) where
   unpureDate    :: f UTCTime -> UTCTime
   isFailureDate :: f UTCTime -> Bool
   runDateQ      :: (CalendarEvent -> f UTCTime) -> Q -> CalendarEvent -> Bool
@@ -359,7 +279,7 @@ class Applicative f => ComposeDate (f :: * -> *) where
                           (CalendarEvent -> Bool)
 
   runDateQ f q event
-    | isFailureDate (f event) == True = False
+    | isFailureDate (f event) = False
     | otherwise =
       let pureday      = utctDay $ unpureDate $ f event
           greg         = toGregorian pureday
@@ -367,7 +287,7 @@ class Applicative f => ComposeDate (f :: * -> *) where
       in
         case q of
           QDate d           -> d == pureday
-          QRange d1 d2      -> (d1 <= greg) && (greg <= d2)
+          QRange d1' d2'    -> (d1' <= greg) && (greg <= d2')
           QYear y           -> y == y1
           QMonth m          -> m == m1
           QDay d            -> d == d1
@@ -377,7 +297,7 @@ class Applicative f => ComposeDate (f :: * -> *) where
 
   f <+> q = runDateQ f q
 
-class Applicative a => ComposeString (a :: * -> *) where
+class Applicative a => ComposeString (a :: Type -> Type) where
   unpureString     :: a String -> String
   isFailureString  :: a String -> Bool
   runStringQ       :: (CalendarEvent -> a String) -> Q ->
@@ -386,23 +306,12 @@ class Applicative a => ComposeString (a :: * -> *) where
   (<->) :: (CalendarEvent -> a String) -> Q -> (CalendarEvent -> Bool)
 
   runStringQ f q event
-    | isFailureString (f event) == True = False
+    | isFailureString (f event) = False
     | otherwise = case q of
                     QContains s -> s `contains` unpureString (f event)
                     _ -> False
 
   f <-> q = runStringQ f q
-
--- class (ComposeString f, ComposeDate f, Applicative f) =>
---   Compose f a where
---   unpure    :: f a -> a
---   isFailure :: f a -> Bool
---   predicate :: Q -> a -> Bool
---   runQ      :: (CalendarEvent -> f a) -> Q -> CalendarEvent -> Bool
-
---   runQ getter q event
---     | isFailure (getter event) == True = False
---     | otherwise = q `predicate` (unpure $ getter event)
 
 instance ComposeDate Maybe where
   unpureDate = fromJust
@@ -424,19 +333,31 @@ contains :: String -> String -> Bool
 contains [] _ = False
 contains part subs = part `elem` (inits subs ++ tails subs)
 
-datesetToUTCTime :: DateSet -> UTCTime
-datesetToUTCTime (y, m, d) =
-  UTCTime (fromGregorian y m d) (secondsToDiffTime 0)
+-- datesetToUTCTime :: DateSet -> UTCTime
+-- datesetToUTCTime (y, m, d) =
+--   UTCTime (fromGregorian y m d) (secondsToDiffTime 0)
 
-datesetToDay :: DateSet -> Day
-datesetToDay = utctDay . datesetToUTCTime
+-- datesetToDay :: DateSet -> Day
+-- datesetToDay = utctDay . datesetToUTCTime
 -- instance TestQuery (Maybe UTCTime)
 
 matchQuery :: [CalendarEvent -> Bool] -> CalendarEvent -> Bool
-matchQuery qs event = and $ map ($ event) qs
+matchQuery qs event = all ($ event) qs
 
 matchQueryOr :: [CalendarEvent -> Bool] -> CalendarEvent -> Bool
-matchQueryOr qs event = or $ map ($ event) qs
+matchQueryOr qs event = any ($ event) qs
 
-test = [ (Const . eventSummary) <-> QContains "test"
-       , eventStart <+> QDate (fromGregorian 2025 4 1)]
+-- test :: [CalendarEvent -> Bool]
+-- test = [ (Const . eventSummary) <-> QContains "test"
+--        , eventStart <+> QDate (fromGregorian 2025 4 1)]
+
+-- class (ComposeString f, ComposeDate f, Applicative f) =>
+--   Compose f a where
+--   unpure    :: f a -> a
+--   isFailure :: f a -> Bool
+--   predicate :: Q -> a -> Bool
+--   runQ      :: (CalendarEvent -> f a) -> Q -> CalendarEvent -> Bool
+
+--   runQ getter q event
+--     | isFailure (getter event) == True = False
+--     | otherwise = q `predicate` (unpure $ getter event)
