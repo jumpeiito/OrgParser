@@ -351,13 +351,32 @@ matchQueryOr qs event = any ($ event) qs
 -- test = [ (Const . eventSummary) <-> QContains "test"
 --        , eventStart <+> QDate (fromGregorian 2025 4 1)]
 
--- class (ComposeString f, ComposeDate f, Applicative f) =>
---   Compose f a where
---   unpure    :: f a -> a
---   isFailure :: f a -> Bool
---   predicate :: Q -> a -> Bool
---   runQ      :: (CalendarEvent -> f a) -> Q -> CalendarEvent -> Bool
+class (Applicative f) => Compose f a where
+  unpure    :: f a -> a
+  isFailure :: f a -> Bool
+  -- predicate :: Q -> a -> Bool
+  runQ      :: (CalendarEvent -> f a) -> Q -> CalendarEvent -> Bool
 
---   runQ getter q event
---     | isFailure (getter event) == True = False
---     | otherwise = q `predicate` (unpure $ getter event)
+instance Compose (Const String) String where
+  unpure = getConst
+  isFailure = (== mempty) . unpure
+  runQ  = runStringQ
+
+instance Compose Maybe String where
+  unpure = fromJust
+  isFailure = isNothing
+  runQ = runStringQ
+
+instance Compose Maybe UTCTime where
+  unpure = fromJust
+  isFailure = isNothing
+  runQ = runDateQ
+
+instance Compose (Either ParseError) UTCTime where
+  unpure = fromRight (UTCTime (fromGregorian 1900 1 1) (secondsToDiffTime 0))
+  isFailure = isLeft
+  runQ = runDateQ
+
+  -- runQ getter q event
+  --   | isFailure (getter event) = False
+  --   | otherwise = q `predicate` unpure (getter event)

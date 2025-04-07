@@ -22,7 +22,7 @@ module Org.Parse
 where
 
 import Data.Time
-import Data.Proxy
+-- import Data.Proxy
 import qualified Data.List as Dl
 import Text.Parsec
 import Control.Monad

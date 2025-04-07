@@ -47,7 +47,7 @@ data RefreshJSON =
   deriving (Show)
 
 testOauth :: Oauth
-testOauth = Oauth mempty mempty mempty mempty mempty 
+testOauth = Oauth mempty mempty mempty mempty mempty
 testClient :: Client
 testClient = Client mempty mempty testOauth mempty
 
