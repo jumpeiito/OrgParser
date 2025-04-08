@@ -351,32 +351,37 @@ matchQueryOr qs event = any ($ event) qs
 -- test = [ (Const . eventSummary) <-> QContains "test"
 --        , eventStart <+> QDate (fromGregorian 2025 4 1)]
 
-class (Applicative f) => Compose f a where
-  unpure    :: f a -> a
-  isFailure :: f a -> Bool
-  -- predicate :: Q -> a -> Bool
-  runQ      :: (CalendarEvent -> f a) -> Q -> CalendarEvent -> Bool
+-- class (Applicative f) => Compose f a where
+--   unpure    :: f a -> a
+--   isFailure :: f a -> Bool
+--   predicate :: Q -> a -> Bool
+--   -- runQ      :: (CalendarEvent -> f a) -> Q -> CalendarEvent -> Bool
+--   runQ :: Q -> f a -> Bool
 
-instance Compose (Const String) String where
-  unpure = getConst
-  isFailure = (== mempty) . unpure
-  runQ  = runStringQ
+--   q `runQ` comp
+--     | isFailure comp = False
+--     | otherwise = q `predicate` unpure comp
 
-instance Compose Maybe String where
-  unpure = fromJust
-  isFailure = isNothing
-  runQ = runStringQ
+-- instance Compose (Const String) String where
+--   unpure = getConst
+--   isFailure = (== mempty) . unpure
+--   runQ  = runStringQ
 
-instance Compose Maybe UTCTime where
-  unpure = fromJust
-  isFailure = isNothing
-  runQ = runDateQ
+-- instance Compose Maybe String where
+--   unpure = fromJust
+--   isFailure = isNothing
+--   runQ = runStringQ
 
-instance Compose (Either ParseError) UTCTime where
-  unpure = fromRight (UTCTime (fromGregorian 1900 1 1) (secondsToDiffTime 0))
-  isFailure = isLeft
-  runQ = runDateQ
+-- instance Compose Maybe UTCTime where
+--   unpure = fromJust
+--   isFailure = isNothing
+--   runQ = runDateQ
 
-  -- runQ getter q event
-  --   | isFailure (getter event) = False
-  --   | otherwise = q `predicate` unpure (getter event)
+-- instance Compose (Either ParseError) UTCTime where
+--   unpure = fromRight (UTCTime (fromGregorian 1900 1 1) (secondsToDiffTime 0))
+--   isFailure = isLeft
+--   runQ = runDateQ
+
+--   -- runQ getter q event
+--   --   | isFailure (getter event) = False
+--   --   | otherwise = q `predicate` unpure (getter event)

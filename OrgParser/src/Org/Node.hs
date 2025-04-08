@@ -17,20 +17,22 @@ module Org.Node
   , normalFilter
   , nodeToCalendarEvents
   , orgFile
+  , orgEvents
   )
 where
 
 import Org.Parse
 import Org.GoogleCalendar.Event
-import Data.List        (intercalate)
+import Data.List                  (intercalate, isSuffixOf)
 import Data.Maybe
 import Data.Time
-import Data.Either (rights)
+import Data.Either                (rights)
 import Control.Monad.State
-import Control.Applicative ((<|>))
+import Control.Applicative        ((<|>))
 -- import Text.Blaze.Html.Renderer.String
 -- import Text.Hamlet
-import System.Environment      (getEnv)
+import System.Environment         (getEnv)
+import System.Directory           (getDirectoryContents)
 
 data OrgTitle = OrgTitle { otitle      :: String
                          , olevel      :: Int
@@ -163,7 +165,7 @@ childrenTimeStamps :: Node OrgTitle -> [OrgTimeStamp]
 childrenTimeStamps = foldMap ((`mappend` []) . otimestamps)
 
 hasAliveTime :: Node OrgTitle -> Bool
-hasAliveTime = not . any notCloseOrInActive . nodeTimeStamps
+hasAliveTime = not . null . filter notCloseOrInActive . nodeTimeStamps
   where
     notCloseOrInActive :: OrgTimeStamp -> Bool
     notCloseOrInActive timestamp =
@@ -276,14 +278,6 @@ htmlLink (ValueLink url (Just expr)) =
   concat ["<a href=\"", url, "\">", expr, "</a>"]
 htmlLink _ = mempty
 
-orgLineNode :: [String] -> Node OrgTitle
-orgLineNode orglines =
-  let parsed = concat $ rights $ map orgLineParse orglines in
-  foldr element2Node None (reverse parsed)
-
-orgFileNode :: FilePath -> IO (Node OrgTitle)
-orgFileNode fp = orgLineNode . lines <$> readFile fp
-
 nodeCollectList :: (Node OrgTitle -> Bool) -> Node OrgTitle -> [OrgTitle]
 nodeCollectList _ None = []
 nodeCollectList f node@(Node a n c) =
@@ -293,7 +287,7 @@ nodeCollectList f node@(Node a n c) =
     False -> second
 
 normalFilter :: Node OrgTitle -> Bool
-normalFilter node = hasAliveTime node && notTODO node
+normalFilter node = (hasAliveTime node) && (notTODO node)
 
 titleToCalendarEvent :: OrgTimeStamp -> OrgTitle -> CalendarEvent
 titleToCalendarEvent stamp ttl' =
@@ -327,3 +321,27 @@ tailSpaceKill = reverse . kloop . reverse
 
 orgFile :: IO FilePath
 orgFile = flip (++) "/notes.org" <$> getEnv "ORG"
+
+orgLineNode :: [String] -> Node OrgTitle
+orgLineNode orglines =
+  let parsed = concat $ rights $ map orgLineParse orglines in
+  foldr element2Node None (reverse parsed)
+
+orgFileNode :: FilePath -> IO (Node OrgTitle)
+orgFileNode fp = orgLineNode . lines <$> readFile fp
+
+orgArchiveFiles :: IO [FilePath]
+orgArchiveFiles = do
+  orgDir   <- getEnv "ORG"
+  contents <- getDirectoryContents orgDir
+  let fullpaths = map (\n -> orgDir ++ "\\" ++ n) contents
+  return $ filter ("org_archive" `isSuffixOf`) fullpaths
+
+orgArchiveNode :: IO [Node OrgTitle]
+orgArchiveNode = orgArchiveFiles >>= sequence . map orgFileNode
+
+orgEvents :: IO [CalendarEvent]
+orgEvents = do
+  notes    <- orgFile >>= orgFileNode
+  archives <- orgArchiveNode
+  return $ concatMap nodeToCalendarEvents (notes : archives)

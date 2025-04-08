@@ -19,7 +19,7 @@ import  Data.String.Conversions (convertString)
 import  Control.Monad           (forM_)
 import  Control.Monad.Reader    (ask, runReaderT, liftIO, asks)
 import  Network.HTTP.Req
-import  Org.Node                (orgFileNode, nodeToCalendarEvents, orgFile)
+import  Org.Node                (orgFileNode, nodeToCalendarEvents, orgFile, orgEvents)
 import  Org.GoogleCalendar.Client
 import  Org.GoogleCalendar.Event
 import  qualified Org.GoogleCalendar.Color as GCC
@@ -150,8 +150,9 @@ updateGoogleCalendar cal = do
   apair <- accessTokenPair
   (`runReaderT` apair) $ do
     gcalList <- getGoogleCalendarList cal
-    allev    <- nodeToCalendarEvents <$> liftIO (orgFile >>= orgFileNode)
+    allev    <- liftIO orgEvents
     let events    = filter (filterEvent cal) allev
+    -- forM_ events $ liftIO . print
     let diffs     = diffCalendarEvent events gcalList
     let diffVerse = diffVerseCalendarEvent events gcalList
     edibleEventsReplace cal diffs
@@ -180,7 +181,7 @@ insertEvent cal ev = do
   runReq defaultHttpConfig $ do
     res  <- req POST (url cal) (ReqBodyJson ev) jsonResponse
               (headerAuthorization aToken)
-    liftIO $ print (responseBody res :: Value)
+    liftIO $ print (responseBody res :: CalendarEvent)
     liftIO $ putStrLn $ eventSummary ev ++ " registered!"
 
 replaceEvent :: Calendar -> CalendarEventEqual -> WithAccessToken ()
