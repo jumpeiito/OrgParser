@@ -1,12 +1,13 @@
-{-# LANGUAGE InstanceSigs, FlexibleContexts, ScopedTypeVariables, FlexibleInstances #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 module Org.Node
   (
     Node (..)
   , OrgTitle (..)
   , OrgTimeStamp (..)
+  , OrgNode
   , EQNode (..)
-  , OrgValue (..)
   , DebugPrint (..)
   , hasChildrenAliveTime
   , notChildrenTODO
@@ -49,13 +50,13 @@ newtype DebugPrint = Dp OrgTitle
 
 instance Show DebugPrint where
   show (Dp ttl) =
-    let level' = olevel ttl in
+    let level' = ttl.olevel in
       replicate level' ' '
       ++ show level'
       ++ " : "
-      ++ otitle ttl
+      ++ ttl.otitle
       ++ " -> "
-      ++ show (otimestamps ttl)
+      ++ show ttl.otimestamps
 
 data OrgTimeStamp = OrgTimeStamp { obegin    :: UTCTime
                                  , odatetype :: OrgTimeStampType
@@ -66,15 +67,12 @@ data OrgTimeStamp = OrgTimeStamp { obegin    :: UTCTime
 newtype OrgProperty = OrgProperty (String, String)
   deriving (Show, Eq)
 
-data OrgValue = ValueTimeStamp OrgTimeStamp
-              | ValueTags [String]
-              | ValueProperty OrgProperty
-              | ValueLink String (Maybe String)
-              | ValueOther String
-
 data Node a = Node a (Node a) (Node a)
             | None
             deriving  (Show, Eq)
+
+type OrgNode = Node OrgTitle
+type OrgNodeState = State [String] OrgNode
 
 instance Functor Node where
   _ `fmap` None = None
@@ -143,45 +141,45 @@ instance FromParser OrgTimeStamp where
                    , oend      = e }
   fromParse k = error $ show k ++ " : must not happen"
 
-nodeTitle :: Node OrgTitle -> OrgTitle
+nodeTitle :: OrgNode -> OrgTitle
 nodeTitle (Node el _ _) = el
 
-nodeTitleString :: Node OrgTitle -> String
-nodeTitleString (Node el _ _) = otitle el
+nodeTitleString :: OrgNode -> String
+nodeTitleString (Node el _ _) = el.otitle
 
-nodeLevel :: Node OrgTitle -> Maybe Int
-nodeLevel (Node el _ _) = Just $ olevel el
+nodeLevel :: OrgNode -> Maybe Int
+nodeLevel (Node el _ _) = Just $ el.olevel
 nodeLevel None          = Nothing
 
-nodeTimeStamps :: Node OrgTitle -> [OrgTimeStamp]
+nodeTimeStamps :: OrgNode -> [OrgTimeStamp]
 nodeTimeStamps None = []
-nodeTimeStamps (Node title' _ _) = otimestamps title'
+nodeTimeStamps (Node title' _ _) = title'.otimestamps
 
-nodeLocation :: Node OrgTitle -> Maybe String
+nodeLocation :: OrgNode -> Maybe String
 nodeLocation None = Nothing
 nodeLocation node = titleLocation $ nodeTitle node
 
-childrenTimeStamps :: Node OrgTitle -> [OrgTimeStamp]
+childrenTimeStamps :: OrgNode -> [OrgTimeStamp]
 childrenTimeStamps = foldMap ((`mappend` []) . otimestamps)
 
-hasAliveTime :: Node OrgTitle -> Bool
-hasAliveTime = not . null . filter notCloseOrInActive . nodeTimeStamps
+hasAliveTime :: OrgNode -> Bool
+hasAliveTime = any notCloseOrInActive . nodeTimeStamps
   where
     notCloseOrInActive :: OrgTimeStamp -> Bool
     notCloseOrInActive timestamp =
-      (odatetype timestamp /= Closed) && (oactive timestamp)
+      timestamp.odatetype /= Closed && timestamp.oactive
 
-hasChildrenAliveTime :: Node OrgTitle -> Bool
+hasChildrenAliveTime :: OrgNode -> Bool
 hasChildrenAliveTime None               = False
 hasChildrenAliveTime o@(Node _ _ None)  = hasAliveTime o
 hasChildrenAliveTime o@(Node _ _ child) =
   hasAliveTime o || hasAliveTime child
 
-notTODO :: Node OrgTitle -> Bool
+notTODO :: OrgNode -> Bool
 notTODO None = False
 notTODO (Node title' _ _) = isNothing . otodo $ title'
 
-notChildrenTODO :: Node OrgTitle -> Bool
+notChildrenTODO :: OrgNode -> Bool
 notChildrenTODO None               = False
 notChildrenTODO (Node name _ None) = isNothing $ otodo name
 notChildrenTODO o@(Node _ _ child) = notTODO o || notChildrenTODO child
@@ -193,92 +191,88 @@ titleLocation = loop . oproperties
     loop (OrgProperty ("LOCATION", val):_) = Just val
     loop (_:xs) = loop xs
 
--- nodeDescription :: OrgNodeElement -> String
--- nodeDescription = loop mempty . children . element
---   where
---     loop s [] = s
---     loop s ((OrgOther o):xs) = loop (s <> o) xs
---     loop s (_:xs) = loop s xs
-testNode1, testNode2 :: Node OrgTitle
-testNode1 =
-  pure $ def { olevel = 1, otitle = "node1"
-             , otimestamps = [OrgTimeStamp { obegin = UTCTime (fromGregorian 2025 4 1)
-                                                              (secondsToDiffTime 0)
-                                          , odatetype = Normal
-                                          , oactive = True
-                                          , oend = Nothing }]}
-testLink = ValueLink "http://hoge" (Just "foo")
+-- testNode1, testNode2 :: OrgNode
+-- testNode1 =
+--   pure $ def { olevel = 1, otitle = "node1"
+--              , otimestamps = [OrgTimeStamp { obegin = UTCTime (fromGregorian 2025 4 1)
+--                                                               (secondsToDiffTime 0)
+--                                           , odatetype = Normal
+--                                           , oactive = True
+--                                           , oend = Nothing }]}
 
-testNode2 = pure $ def { olevel = 2, otitle = "node2" }
+-- testNode2 = pure $ def { olevel = 2, otitle = "node2" }
 
-testTitles :: [OrgTitle]
-testTitles = [def {olevel=1}, def {olevel=2}, def {olevel=3}, def {olevel=3}]
--- nextNode :: a -> OrgNode a
+-- testTitles :: [OrgTitle]
+-- testTitles = [def {olevel=1}, def {olevel=2}, def {olevel=3}, def {olevel=3}]
 
-addNode :: Node OrgTitle -> Node OrgTitle -> Node OrgTitle
-addNode newn oldn = loop newn oldn `evalState` mempty
-  where
-    setPath :: Node OrgTitle -> State [String] (Node OrgTitle)
-    setPath node = do
-      path <- get
-      let t1 = nodeTitle node
-      return $ pure $ t1 { opath = nodeTitleString node : path }
-    loop :: Node OrgTitle -> Node OrgTitle -> State [String] (Node OrgTitle)
-    loop n None    = setPath n
-    loop None n    = return n
-    loop n (Node a next@Node{} c)
-                   = do { nex' <- loop n next; return $ Node a nex' c }
-    loop n o@(Node a None c)
-      | EQN n == EQN o = do { nex <- setPath n; return $ Node a nex c }
-      | EQN n > EQN o  = do
-          path <- get
-          put (nodeTitleString o : path)
-          Node a None <$> loop n c
-      | otherwise = error $ nodeTitleString n ++ " : must not happen"
+addNode :: OrgNode -> OrgNode -> OrgNode
+addNode attach oldn = addNodeState attach oldn `evalState` mempty
 
+addNodeSetPath :: OrgNode -> OrgNodeState
+addNodeSetPath attach = do
+  path <- get
+  let t1 = nodeTitle attach
+  return $ pure $ t1 { opath = nodeTitleString attach : path }
 
-element2Node :: Element -> Node OrgTitle -> Node OrgTitle
-element2Node el node =
-  case el of
-    ParserTitle{}           -> pure (fromParse el) `addNode` node
-    ParserTimeStamp{}       -> ValueTimeStamp (fromParse el) `setNodeValue` node
-    ParserTags t            -> ValueTags t                   `setNodeValue` node
-    ParserProperty p        -> ValueProperty (OrgProperty p) `setNodeValue` node
-    ParserLink d e          -> ValueLink d e                 `setNodeValue` node
-    ParserOther s           -> ValueOther s                  `setNodeValue` node
-    ParserLineBreak         -> ValueOther "\\r\\n\n"         `setNodeValue` node
+addNodeState :: OrgNode -> OrgNode -> OrgNodeState
+addNodeState attach None = addNodeSetPath attach
+addNodeState None o = return o
+addNodeState attach o@(Node a Node{} c) = addNodeNextState attach o
+addNodeState attach o@(Node a None c)
+  | EQN attach == EQN o = addNodeNextEmptyState attach o
+  | EQN attach > EQN o  = addNodeChildState attach o
+  | otherwise = error $ nodeTitleString attach ++ " : must not happen"
 
-setNodeValue :: OrgValue -> Node OrgTitle -> Node OrgTitle
+addNodeNextState :: OrgNode -> OrgNode -> OrgNodeState
+addNodeNextState attach (Node a n c) = do
+  nex' <- addNodeState attach n
+  return $ Node a nex' c
+
+addNodeNextEmptyState :: OrgNode -> OrgNode -> OrgNodeState
+addNodeNextEmptyState attach (Node a _ c) = do
+  nex <- addNodeSetPath attach
+  return $ Node a nex c
+
+addNodeChildState :: OrgNode -> OrgNode -> OrgNodeState
+addNodeChildState attach (Node a _ c) = do
+  path <- get
+  put (nodeTitleString attach : path)
+  Node a None <$> addNodeState attach c
+
+element2Node :: Element -> OrgNode -> OrgNode
+element2Node ptitle@ParserTitle{} node =
+  pure (fromParse ptitle) `addNode` node
+element2Node pelement node =
+  pelement `setNodeValue` node
+
+setNodeValue :: Element -> OrgNode -> OrgNode
 setNodeValue _ None = None
-setNodeValue v (Node a None None) =
-  let orgtitle =
-        case v of
-          ValueTimeStamp s
-            -> let current = otimestamps a in a { otimestamps = s:current }
-          ValueTags t
-            -> let current = otags a in a { otags = t ++ current }
-          ValueProperty op
-            -> let current = oproperties a in a { oproperties = op:current }
-          ValueLink _ _
-            -> let current = oparagraph a in
-                 a { oparagraph = current <> htmlLink v }
-          ValueOther s
-            -> let current = oparagraph a  in a { oparagraph = current <> s }
-          -- _ -> a
-  in pure orgtitle
+setNodeValue pel (Node a None None) =
+  let
+    org =
+      case pel of
+        ParserTimeStamp{} ->
+          a { otimestamps = fromParse pel : a.otimestamps }
+        ParserTags t ->
+          a { otags = t <> a.otags }
+        ParserProperty p ->
+          a { oproperties = OrgProperty p : a.oproperties }
+        ParserLink{} ->
+          a { oparagraph = a.oparagraph <> htmlLink pel }
+        ParserOther s ->
+          a { oparagraph = a.oparagraph <> s }
+        ParserLineBreak ->
+          a { oparagraph = a.oparagraph <> "\\r\\n\n" }
+  in
+    pure org
 setNodeValue v (Node a n@Node{} c) = Node a (setNodeValue v n) c
 setNodeValue v (Node a n c@Node{}) = Node a n (setNodeValue v c)
 
-htmlLink :: OrgValue -> String
-htmlLink (ValueLink url Nothing) =
-  -- renderHtml [shamlet|<a href="#{url}">#{url}|]
-  concat ["<a href=\"", url, "\">", url, "</a>"]
-htmlLink (ValueLink url (Just expr)) =
-  -- renderHtml [shamlet|<a href="#{url}">#{expr}|]
-  concat ["<a href=\"", url, "\">", expr, "</a>"]
-htmlLink _ = mempty
+htmlLink :: Element -> String
+htmlLink (ParserLink url expr) =
+  concat [ "<a href=\"", url, "\">" , url `fromMaybe` expr, "</a>"]
 
-nodeCollectList :: (Node OrgTitle -> Bool) -> Node OrgTitle -> [OrgTitle]
+nodeCollectList :: (OrgNode -> Bool) -> OrgNode -> [OrgTitle]
 nodeCollectList _ None = []
 nodeCollectList f node@(Node a n c) =
   let second = nodeCollectList f c ++ nodeCollectList f n in
@@ -286,30 +280,31 @@ nodeCollectList f node@(Node a n c) =
     True  -> a : second
     False -> second
 
-normalFilter :: Node OrgTitle -> Bool
-normalFilter node = (hasAliveTime node) && (notTODO node)
+normalFilter :: OrgNode -> Bool
+normalFilter node = hasAliveTime node && notTODO node
 
 titleToCalendarEvent :: OrgTimeStamp -> OrgTitle -> CalendarEvent
 titleToCalendarEvent stamp ttl' =
   eventDefault { eventDescription = Just desc
-               , eventEnd         = oend stamp <|> Just (obegin stamp)
-               , eventStart       = Just $ obegin stamp
-               , eventSummary     = tailSpaceKill $ otitle ttl'
+               , eventEnd         = stamp.oend <|> Just stamp.obegin
+               , eventStart       = Just stamp.obegin
+               , eventSummary     = tailSpaceKill ttl'.otitle
                , eventLocation    = titleLocation ttl' }
   where
-    paths = intercalate "/" $ reverse $ opath ttl'
-    desc = case oparagraph ttl' of
+    paths = intercalate "/" $ reverse ttl'.opath
+    desc = case ttl'.oparagraph of
              "" -> paths
              pg -> paths ++ "\n" ++ pg
 
-nodeToCalendarEvents :: Node OrgTitle -> [CalendarEvent]
+nodeToCalendarEvents :: OrgNode -> [CalendarEvent]
 nodeToCalendarEvents node =
-  let titleList = nodeCollectList normalFilter node
-      byTime    = foldMap timestampVtitle titleList
-      timestampVtitle ttl' =
-                  map (flip (,) ttl') $ otimestamps ttl'
+  let
+    titleList = nodeCollectList normalFilter node
+    byTime    = foldMap timestampVtitle titleList
+    timestampVtitle ttl' =
+                  map (flip (,) ttl') ttl'.otimestamps
   in
-  map (uncurry titleToCalendarEvent) byTime
+    map (uncurry titleToCalendarEvent) byTime
 
 tailSpaceKill :: String -> String
 tailSpaceKill = reverse . kloop . reverse
@@ -322,12 +317,12 @@ tailSpaceKill = reverse . kloop . reverse
 orgFile :: IO FilePath
 orgFile = flip (++) "/notes.org" <$> getEnv "ORG"
 
-orgLineNode :: [String] -> Node OrgTitle
+orgLineNode :: [String] -> OrgNode
 orgLineNode orglines =
   let parsed = concat $ rights $ map orgLineParse orglines in
   foldr element2Node None (reverse parsed)
 
-orgFileNode :: FilePath -> IO (Node OrgTitle)
+orgFileNode :: FilePath -> IO OrgNode
 orgFileNode fp = orgLineNode . lines <$> readFile fp
 
 orgArchiveFiles :: IO [FilePath]
@@ -337,8 +332,8 @@ orgArchiveFiles = do
   let fullpaths = map (\n -> orgDir ++ "\\" ++ n) contents
   return $ filter ("org_archive" `isSuffixOf`) fullpaths
 
-orgArchiveNode :: IO [Node OrgTitle]
-orgArchiveNode = orgArchiveFiles >>= sequence . map orgFileNode
+orgArchiveNode :: IO [OrgNode]
+orgArchiveNode = orgArchiveFiles >>= mapM orgFileNode
 
 orgEvents :: IO [CalendarEvent]
 orgEvents = do

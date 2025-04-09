@@ -51,7 +51,7 @@ data Element = ParserTitle { title      :: String
                    deriving (Show, Eq)
 
 data RangeNum = Range Int Int Int
--- ---tags-----------------------------------------------------
+------tags-----------------------------------------------------
 orgTagsParse :: Parser Element
 orgTagsParse = do
   tagname <- char ':'
@@ -59,7 +59,7 @@ orgTagsParse = do
              <* lookAhead (char ':')
   ParserTags loop <- try orgTagsParse <|> return (ParserTags [])
   return $ ParserTags (tagname:loop)
-  -- ---tags-----------------------------------------------------
+------tags-----------------------------------------------------
 
 -- ---time-----------------------------------------------------
 withRangeParse :: String -> Int -> Int -> Int -> Parser Int
@@ -82,6 +82,11 @@ orgDateYMDParse = (,,) <$> withRangeParse "year"  4 2024 2099 <* char '-'
                        <*> withRangeParse "month" 2 1 12 <* char '-'
                        <*> withRangeParse "day"   2 1 31
 
+makeUTC y m d h mi = UTCTime (makeDay y m d) (makeTime h mi)
+  where
+    makeDay y = fromGregorian (toInteger y)
+    makeTime h mi = timeToDiffTime (h, mi)
+
 orgDateCoreParse :: Parser UTCTime
 orgDateCoreParse = do
   -- <2025-04-17 木 10:00>-<2025-04-18 金 12:00>
@@ -92,10 +97,6 @@ orgDateCoreParse = do
     -- ((oneOf "月火水木金土日") >> space >> orgTimeParse) <|> return (0,0)
     try (space >> orgTimeParse) <|> return (0,0)
   return $ makeUTC y m d h mi
-  where
-    makeDay y = fromGregorian (toInteger y)
-    makeTime h mi = timeToDiffTime (h, mi)
-    makeUTC y m d h mi = UTCTime (makeDay y m d) (makeTime h mi)
 
 orgDateCoreParseRefine :: Parser (UTCTime, Maybe UTCTime)
 orgDateCoreParseRefine = do
@@ -105,9 +106,6 @@ orgDateCoreParseRefine = do
   return ( makeUTC y m d h mi
          , uncurry (makeUTC y m d) <$> en)
   where
-    makeDay y = fromGregorian (toInteger y)
-    makeTime h mi = timeToDiffTime (h, mi)
-    makeUTC y m d h mi = UTCTime (makeDay y m d) (makeTime h mi)
     -- <2025-04-17 木 10:00-12:00>
     both = do
       start' <- space *> orgTimeParse <* char '-'
@@ -163,34 +161,54 @@ anyHit _ = undefined
 -- ---time-----------------------------------------------------
 
 -- ---title----------------------------------------------------
+orgStarsParse :: Parser Int
+orgStarsParse = length <$> (many1 (char '*') <* many1 space)
+
+orgTODOParse :: Parser (Maybe String)
+orgTODOParse =
+  let
+    todokwds     = choice $ map string ["TODO", "DONE", "WAIT", "PEND"]
+  in
+    try (Just <$> todokwds <* many1 space) <|> return Nothing
+
+orgIndicateParse :: Parser ()
+orgIndicateParse =
+  try (indicate >> many1 space >> return ()) <|> return ()
+  where
+    numslush = many1 digit >> char '/' >> many1 digit
+    indicate = between (char '[') (char ']') numslush
+
+orgTitleAttachmentParse :: Parser (Element, [Element])
+orgTitleAttachmentParse = do
+  timestamp <- (orgTimeStampParse <* many space) <|> return mempty
+  tags      <- orgTagsParse <|> return (ParserTags [])
+  return (tags, [timestamp])
+
 orgTitleParse :: Parser Element
 orgTitleParse = do
-  stars  <- orgStars
-  todo'  <- orgTODO <|> return Nothing
-  _      <- try (indicate >> many1 space) <|> return mempty
+  stars  <- orgStarsParse
+  todo'  <- orgTODOParse
+  _      <- orgIndicateParse
   title' <- titlep
-  (g, t) <- stopper <|> return (ParserTags [], mempty)
+  (g, t) <- attach
   return $ ParserTitle { title      = title'
-                       , level      = length stars
+                       , level      = stars
                        , todo       = todo'
                        , tags       = g
                        , timestamps = t
                        }
   where
-    orgStars     = many1 (char '*') <* many1 space
-    orgTODO      = try (Just <$> todokwds <* many1 space)
-    todokwds     = choice $ map string ["TODO", "DONE", "WAIT", "PEND"]
-    indicate     = char '[' >> many digit >>
-               char '/' >> many digit >> char ']' >> return ()
-    untilStopper = manyTill' anyToken
-    stopper_time = do { time' <- orgTimeStampParse; return (ParserTags [], [time']) }
-    stopper_tags = do { tags' <- orgTagsParse; return (tags', mempty) }
-    stopper_both = do
-      time' <- orgTimeStampParse <* many space
-      tags' <- orgTagsParse
-      return (tags', [time'])
-    stopper      = anyHit $ map try [ stopper_both, stopper_time, stopper_tags ]
-    titlep       = try (untilStopper stopper) <|>  many anyChar
+    attach = orgTitleAttachmentParse
+    titlep = try (manyTill' anyToken attach) <|> many anyChar
+    -- untilStopper = manyTill' anyToken
+    -- stopper_time = do { time' <- orgTimeStampParse; return (ParserTags [], [time']) }
+    -- stopper_tags = do { tags' <- orgTagsParse; return (tags', mempty) }
+    -- stopper_both = do
+    --   time' <- orgTimeStampParse <* many space
+    --   tags' <- orgTagsParse
+    --   return (tags', [time'])
+    -- stopper      = anyHit $ map try [ stopper_both, stopper_time, stopper_tags ]
+    -- titlep       = try (untilStopper stopper) <|>  many anyChar
 -- -- ---title----------------------------------------------------
 
 -- -- ---property-------------------------------------------------

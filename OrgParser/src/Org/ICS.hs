@@ -14,7 +14,7 @@ import  Data.Text               (Text)
 import  Data.Time
 import  Data.Aeson
 import  Data.Aeson.Types
-import  Data.Maybe              (fromJust)
+import  Data.Maybe              (fromJust, isJust)
 import  Data.String.Conversions (convertString)
 import  Control.Monad           (forM_)
 import  Control.Monad.Reader    (ask, runReaderT, liftIO, asks)
@@ -32,8 +32,8 @@ data CalendarEventEqual = CeeAlmost CalendarEvent
                         deriving (Eq)
 
 instance Show CalendarEventEqual where
-  show (CeeAlmost c) = "CeeAlmost " ++ show c
-  show (CeeNot c) = "CeeNot " ++ show c
+  show (CeeAlmost c)     = "CeeAlmost " ++ show c
+  show (CeeNot c)        = "CeeNot " ++ show c
   show (CeeEdible c1 c2) = "CeeEdible\n" ++ show c1 ++ "\n" ++ show c2 ++ "\n"
 
 data CalendarResponse =
@@ -173,7 +173,9 @@ verseColored :: Calendar -> [CalendarEvent] -> WithAccessToken ()
 verseColored cal = mapM_ eventColored
   where
     newEV ev = ev { eventColorID = Just "11" } -- Tomato
-    eventColored ev = replaceEvent cal (CeeEdible (newEV ev) ev)
+    eventColored ev
+      | isJust (eventBirthDay ev) = return ()
+      | otherwise = replaceEvent cal (CeeEdible (newEV ev) ev)
 
 insertEvent :: Calendar -> CalendarEvent -> WithAccessToken ()
 insertEvent cal ev = do

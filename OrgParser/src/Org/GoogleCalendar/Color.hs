@@ -21,7 +21,7 @@ instance FromJSON ColorSet where
       calendarKeys = map show <$> HashMap.keys <$> calendar
       calendarEvents = map show <$> HashMap.keys <$> event
     in
-    ColorSet <$> calendarKeys <*> calendarEvents
+      ColorSet <$> calendarKeys <*> calendarEvents
   parseJSON invalid    =
     prependFailure "parsing Color failed, "
     (typeMismatch "Object" invalid)

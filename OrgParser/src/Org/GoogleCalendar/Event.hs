@@ -1,8 +1,8 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE KindSignatures    #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE KindSignatures        #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE AllowAmbiguousTypes   #-}
 module Org.GoogleCalendar.Event
   (
     CalendarEvent (..)
@@ -22,7 +22,9 @@ where
 
 import  Data.Maybe              (fromMaybe, fromJust, isNothing, isJust)
 import  Data.Either             (fromRight, isLeft)
+import  Data.Tuple              (swap)
 import  Data.Aeson
+import  Data.Aeson.Key          (fromString)
 import  Data.Aeson.Types hiding (parse)
 import  Data.Kind               (Type)
 import  Data.Time
@@ -41,7 +43,8 @@ data CalendarEvent =
                 , eventSummary     :: String
                 , eventUpdated     :: Either ParseError UTCTime
                 , eventLocation    :: Maybe String
-                , eventColorID     :: Maybe String }
+                , eventColorID     :: Maybe String
+                , eventBirthDay    :: Maybe Value }
   deriving (Eq)
 
 newtype EdibleEqual = Edible { runEdible :: CalendarEvent }
@@ -51,14 +54,14 @@ newtype AlmostEqual = Almost { runAlmost :: CalendarEvent }
 newtype ColorEvent = ColEV { runColEV :: CalendarEvent }
 
 instance Eq EdibleEqual where
-  Edible (CalendarEvent _ _ _ _ _ _ st sumry _ _ _) ==
-    Edible (CalendarEvent _ _ _ _ _ _ st' sumry' _ _ _)
+  Edible (CalendarEvent _ _ _ _ _ _ st sumry _ _ _ _) ==
+    Edible (CalendarEvent _ _ _ _ _ _ st' sumry' _ _ _ _)
     = (sumry == sumry')
       && ((utctDay <$> st) == (utctDay <$> st'))
 
 instance Eq AlmostEqual where
-  Almost (CalendarEvent _ dsc en _ _ _ st sumry _ loc _) ==
-    Almost (CalendarEvent _ dsc' en' _ _ _ st' sumry' _ loc' _)
+  Almost (CalendarEvent _ dsc en _ _ _ st sumry _ loc _ _) ==
+    Almost (CalendarEvent _ dsc' en' _ _ _ st' sumry' _ loc' _ _)
     = (dsc == dsc')
       && (en == en')
       && (st == st')
@@ -84,7 +87,8 @@ eventDefault =
                 , eventUpdated     = Right (UTCTime (fromGregorian 2025 4 1)
                                                     (secondsToDiffTime 0))
                 , eventLocation    = Nothing
-                , eventColorID     = Nothing }
+                , eventColorID     = Nothing
+                , eventBirthDay    = Nothing }
 
 testEvent :: CalendarEvent
 testEvent =
@@ -126,12 +130,13 @@ instance FromJSON CalendarEvent where
                   <*> (parse dateGreenWichParse "" <$> (v .: "updated"))
                   <*> (v .:? "location")
                   <*> (v .:? "colorId")
+                  <*> (v .:? "birthdayProperties")
   parseJSON invalid    =
     prependFailure "parsing CalendarEvent failed, "
     (typeMismatch "Object" invalid)
 
 instance ToJSON CalendarEvent where
-  toJSON (CalendarEvent _ dsc en etag _ _ st smry _ loc color) =
+  toJSON (CalendarEvent _ dsc en etag _ _ st smry _ loc color _) =
     case timeObject <$> st <*> en of
       Nothing -> error "CalendarEvent ToJSON instance error"
       Just (st', en') ->
@@ -147,18 +152,9 @@ instance ToJSON CalendarEvent where
                     , "end"         .= en']
         in
         object (mainObj <> colorBox)
-        -- case color of
-        --   Just cidx -> object [ "etag"        .= etag
-        --                       , "summary"     .= smry
-        --                       , "description" .= dsc
-        --                       , "location"    .= mempty `fromMaybe` loc
-        --                       , "start"       .= st'
-        --                       , "end"         .= en'
-        --                       , "colorId"     .= cidx ]
-        --   Nothing  ->  object 
 
 instance Show CalendarEvent where
-  show (CalendarEvent _ d e _ _ _ s summary _ loc _) =
+  show (CalendarEvent _ _ e _ _ _ s summary _ _ _ b) =
     let
       st = mempty `fromMaybe` (show <$> s)
       en = mempty `fromMaybe` (show <$> e)
@@ -169,12 +165,11 @@ instance Show CalendarEvent where
       ++ " : "
       ++ summary
       ++ ":"
-      ++ mempty `fromMaybe` loc
-      ++ mempty `fromMaybe` d
+      ++ show b
 
 instance Ord CalendarEvent where
-  (CalendarEvent _ _ _ _ _ _ s1 _ _ _ _) `compare`
-    (CalendarEvent _ _ _ _ _ _ s2 _ _ _ _) = s1 `compare` s2
+  (CalendarEvent _ _ _ _ _ _ s1 _ _ _ _ _) `compare`
+    (CalendarEvent _ _ _ _ _ _ s2 _ _ _ _ _) = s1 `compare` s2
 
 data EventTime = EventTime (Maybe String) (Maybe String) deriving (Show, Eq)
 
@@ -226,7 +221,11 @@ toUTCTime (EventTime d dt) =
     Just (Right u) -> Just u
     _              -> Nothing
 
-data GoogleTimeType = GDate | GDateTime deriving (Show, Eq)
+data GoogleTimeType = GDate | GDateTime deriving (Eq)
+
+instance Show GoogleTimeType where
+  show GDate = "date"
+  show GDateTime = "dateTime"
 
 googleTimeFormat :: UTCTime -> GoogleTimeType -> String
 googleTimeFormat utc' GDate = formatTime jpTimeLocale "%Y-%m-%d" utc'
@@ -234,22 +233,23 @@ googleTimeFormat utc' GDateTime =
   formatTime jpTimeLocale "%Y-%m-%dT%H:%M:%S" utc'
 
 makeTimeObject :: GoogleTimeType -> UTCTime -> Value
-makeTimeObject GDate utc' =
-  object [ "date" .= googleTimeFormat utc' GDate ]
-makeTimeObject GDateTime utc' =
-  object [ "dateTime" .= googleTimeFormat utc' GDateTime
-         , "timeZone" .= ("Asia/Tokyo" :: String)]
+makeTimeObject gtype utc' = object (obj1 <> obj2)
+  where
+    obj1 = [ fromString(show gtype) .= googleTimeFormat utc' gtype ]
+    obj2 = case gtype of
+             GDate     -> mempty
+             GDateTime -> [ "timeZone" .= ("Asia/Tokyo" :: String)]
+
+doubleSwap :: (a -> b) -> (a, a) -> (b, b)
+doubleSwap f tuple = swap $ f <$> (swap $ f <$> tuple)
 
 timeObject :: UTCTime -> UTCTime -> (Value, Value)
 timeObject st en
   | utctDay st /= utctDay en =
-    let oneday = 24 * 60 * 60 in
-    ( makeTimeObject GDate st
-    , makeTimeObject GDate (oneday `addUTCTime` en))
-  | utctDayTime st == 0 =
-    (makeTimeObject GDate st, makeTimeObject GDate en)
-  | otherwise =
-    (makeTimeObject GDateTime st, makeTimeObject GDateTime en)
+    let en' = (24 * 60 * 60) `addUTCTime` en in
+      makeTimeObject GDate `doubleSwap` (st, en')
+  | utctDayTime st == 0 = makeTimeObject GDate `doubleSwap` (st, en)
+  | otherwise = makeTimeObject GDateTime `doubleSwap` (st, en)
 
 isPersonal :: CalendarEvent -> Bool
 isPersonal ev = case eventDescription ev of
@@ -332,14 +332,6 @@ instance ComposeString Maybe where
 contains :: String -> String -> Bool
 contains [] _ = False
 contains part subs = part `elem` (inits subs ++ tails subs)
-
--- datesetToUTCTime :: DateSet -> UTCTime
--- datesetToUTCTime (y, m, d) =
---   UTCTime (fromGregorian y m d) (secondsToDiffTime 0)
-
--- datesetToDay :: DateSet -> Day
--- datesetToDay = utctDay . datesetToUTCTime
--- instance TestQuery (Maybe UTCTime)
 
 matchQuery :: [CalendarEvent -> Bool] -> CalendarEvent -> Bool
 matchQuery qs event = all ($ event) qs
