@@ -236,7 +236,7 @@ addNodeNextEmptyState attach (Node a _ c) = do
 addNodeChildState :: OrgNode -> OrgNode -> OrgNodeState
 addNodeChildState attach (Node a _ c) = do
   path <- get
-  put (nodeTitleString attach : path)
+  put (otitle a : path)
   Node a None <$> addNodeState attach c
 
 element2Node :: Element -> OrgNode -> OrgNode

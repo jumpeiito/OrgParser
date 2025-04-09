@@ -154,7 +154,7 @@ instance ToJSON CalendarEvent where
         object (mainObj <> colorBox)
 
 instance Show CalendarEvent where
-  show (CalendarEvent _ _ e _ _ _ s summary _ _ _ b) =
+  show (CalendarEvent _ d e _ _ _ s summary _ _ _ b) =
     let
       st = mempty `fromMaybe` (show <$> s)
       en = mempty `fromMaybe` (show <$> e)
@@ -165,7 +165,7 @@ instance Show CalendarEvent where
       ++ " : "
       ++ summary
       ++ ":"
-      ++ show b
+      ++ mempty `fromMaybe` d
 
 instance Ord CalendarEvent where
   (CalendarEvent _ _ _ _ _ _ s1 _ _ _ _ _) `compare`

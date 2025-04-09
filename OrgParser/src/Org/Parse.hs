@@ -180,9 +180,10 @@ orgIndicateParse =
 
 orgTitleAttachmentParse :: Parser (Element, [Element])
 orgTitleAttachmentParse = do
-  timestamp <- (orgTimeStampParse <* many space) <|> return mempty
-  tags      <- orgTagsParse <|> return (ParserTags [])
-  return (tags, [timestamp])
+  timestamp <- ((: []) <$> try orgTimeStampParse) <* many space <|> return mempty
+  tags      <- try orgTagsParse <|> return (ParserTags [])
+  guard $ timestamp /= [] || tags /= ParserTags []
+  return (tags, timestamp)
 
 orgTitleParse :: Parser Element
 orgTitleParse = do
@@ -190,7 +191,7 @@ orgTitleParse = do
   todo'  <- orgTODOParse
   _      <- orgIndicateParse
   title' <- titlep
-  (g, t) <- attach
+  (g, t) <- attach <|> return (ParserTags [], mempty)
   return $ ParserTitle { title      = title'
                        , level      = stars
                        , todo       = todo'
@@ -200,15 +201,6 @@ orgTitleParse = do
   where
     attach = orgTitleAttachmentParse
     titlep = try (manyTill' anyToken attach) <|> many anyChar
-    -- untilStopper = manyTill' anyToken
-    -- stopper_time = do { time' <- orgTimeStampParse; return (ParserTags [], [time']) }
-    -- stopper_tags = do { tags' <- orgTagsParse; return (tags', mempty) }
-    -- stopper_both = do
-    --   time' <- orgTimeStampParse <* many space
-    --   tags' <- orgTagsParse
-    --   return (tags', [time'])
-    -- stopper      = anyHit $ map try [ stopper_both, stopper_time, stopper_tags ]
-    -- titlep       = try (untilStopper stopper) <|>  many anyChar
 -- -- ---title----------------------------------------------------
 
 -- -- ---property-------------------------------------------------
