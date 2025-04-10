@@ -22,6 +22,7 @@ module Org.Parse
 where
 
 import Data.Time
+import Data.Functor.Identity
 -- import Data.Proxy
 import qualified Data.List as Dl
 import Text.Parsec
@@ -213,17 +214,16 @@ orgPropertyParse = ParserProperty <$> ((,) <$> pname <*> pval)
 
 -- -- ---link-----------------------------------------------------
 orgLinkParse :: Parser Element
-orgLinkParse = try link1 <|> try link2
+orgLinkParse = do
+  (link, ex) <- between (string "[[") (string "]]") linkParse
+  guardHttp link
+  return $ ParserLink link ex
   where
-    link1 = do
-      link <- string "[[" *> many1 (satisfy (/= ']')) <* string "]]"
-      guard $ "http" `Dl.isPrefixOf` link
-      return (ParserLink link Nothing)
-    link2 = do
-      link <- string "[[" *> manyTill (satisfy (/= ']')) (string "]")
-      guard $ "http" `Dl.isPrefixOf` link
-      expl <- string "[" *> manyTill (satisfy (/= ']')) (string "]")
-      return (ParserLink link (Just expl))
+    guardHttp   = guard . ("http" `Dl.isPrefixOf`)
+    linkParse   = try withExpr <|> try withoutExpr
+    withExpr    = (,) <$> (token <* string "][") <*> (Just <$> token)
+    withoutExpr = (,) <$> token <*> return Nothing
+    token       = many1 (satisfy (/= ']'))
 -- -- ---link-----------------------------------------------------
 
 -- -- ---lineBreak------------------------------------------------
