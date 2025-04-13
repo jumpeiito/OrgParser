@@ -180,7 +180,8 @@ getRefreshToken = do
   runReq defaultHttpConfig $ do
     res <- req
            POST
-           googleOauthTokenServer
+           -- googleOauthTokenServer
+           (https "www.googleapis.com" /: "oauth2" /: "v4" /: "token")
            NoReqBody
            jsonResponse
            query

@@ -1,6 +1,9 @@
 {-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE FlexibleInstances    #-}
 {-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE OverloadedLabels   #-}
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 module Org.Node
   (
     Node (..)
@@ -19,21 +22,28 @@ module Org.Node
   , nodeToCalendarEvents
   , orgFile
   , orgEvents
+  , build
+  , scrap
+  , scrapAll
+  , scrapWith
+  , toEvent
   )
 where
 
-import Org.Parse
-import Org.GoogleCalendar.Event
+import Control.Applicative        ((<|>))
+import Control.Lens               hiding ((:>), oneOf, noneOf)
+import Control.Monad.State
+import qualified Data.Text        as Tx
+import Data.Extensible
 import Data.List                  (intercalate, isSuffixOf)
 import Data.Maybe
 import Data.Time
 import Data.Either                (rights)
-import Control.Monad.State
-import Control.Applicative        ((<|>))
--- import Text.Blaze.Html.Renderer.String
--- import Text.Hamlet
 import System.Environment         (getEnv)
 import System.Directory           (getDirectoryContents)
+import Org.Parse
+import qualified Org.ParseText    as PTX
+import Org.GoogleCalendar.Event
 
 data OrgTitle = OrgTitle { otitle      :: String
                          , olevel      :: Int
@@ -340,3 +350,80 @@ orgEvents = do
   notes    <- orgFile >>= orgFileNode
   archives <- orgArchiveNode
   return $ concatMap nodeToCalendarEvents (notes : archives)
+
+toEvent :: PTX.Timestamp -> PTX.Title -> CalendarEvent
+toEvent stamp ttl =
+  let
+    ttlLocation = ttl ^. #location
+    location = if Tx.null ttlLocation then Nothing else Just ttlLocation
+  in
+    eventDefault { eventDescription = Just desc
+                 , eventEnd         = stamp ^. #end <|> Just (stamp ^. #begin)
+                 , eventStart       = Just (stamp ^. #begin)
+                 , eventSummary     = tailSpaceKill (Tx.unpack (ttl ^. #label))
+                 , eventLocation    = Tx.unpack <$> location }
+  where
+    paths = Tx.unpack (ttl ^. #path)
+    desc = case Tx.unpack (ttl ^. #paragraph) of
+             "" -> paths
+             pg -> paths ++ "\n" ++ pg
+
+class Nodeable a where
+  isNext         :: a -> a -> Bool
+  final          :: [a] -> a -> a
+  scrapFilter    :: a -> Bool
+  --------------------------------------------------
+  build          :: a -> Node a -> Node a
+  buildPath      :: a -> Node a -> State [a] (Node a)
+  buildChildPath :: a -> Node a -> State [a] (Node a)
+  setPath        :: a -> State [a] (Node a)
+  scrap          :: Node a -> [a]
+  scrapAll       :: Node a -> [a]
+  scrapWith      :: (a -> Bool) -> Node a -> [a]
+
+  build newa oldn = buildPath newa oldn `evalState` mempty
+
+  buildPath newa None = setPath newa
+  buildPath newa (Node a next@Node{} c) = do
+    next <- buildPath newa next
+    return $ Node a next c
+  buildPath newa oldn@(Node a None c)
+    | newa `isNext` a == True = do
+        next <- setPath newa
+        return $ Node a next c
+    | otherwise = buildChildPath newa oldn
+
+  buildChildPath newa (Node olda n c) = do
+    path <- get
+    put (path <> [olda])
+    Node olda n <$> buildPath newa c
+
+  setPath a = do
+    path <- get
+    return $ pure $ final path a
+
+  scrapWith _ None = []
+  scrapWith f (Node a n c) =
+    let second = scrapWith f n ++ scrapWith f c in
+      case f a of
+        True  -> a : second
+        False -> second
+
+  scrap = scrapWith scrapFilter
+
+  scrapAll = scrapWith (const True)
+
+instance Nodeable PTX.Title where
+  isNext t1 t2 = PTX.LEQ t1 == PTX.LEQ t2
+  final paths ttl =
+    let pathText = (Tx.intercalate "/" $ map (^. #label) paths) in
+      ttl & #path .~ pathText
+  scrapFilter ttl =
+    let
+      hasAliveTime ttl = any notCloseAndActive timestamps
+      timestamps = ttl ^. #timestamps
+      notCloseAndActive timestamp =
+        (timestamp ^. #datetype /= PTX.Closed) && (timestamp ^. #active)
+      notTODO = isNothing . (^. #todo)
+    in
+      hasAliveTime ttl && notTODO ttl

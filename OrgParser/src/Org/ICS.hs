@@ -20,6 +20,7 @@ import  Control.Monad           (forM_)
 import  Control.Monad.Reader    (ask, runReaderT, liftIO, asks)
 import  Network.HTTP.Req
 import  Org.Node                (orgFileNode, nodeToCalendarEvents, orgFile, orgEvents)
+import  Org.Conduit             (forICS)
 import  Org.GoogleCalendar.Client
 import  Org.GoogleCalendar.Event
 import  qualified Org.GoogleCalendar.Color as GCC
@@ -150,7 +151,8 @@ updateGoogleCalendar cal = do
   apair <- accessTokenPair
   (`runReaderT` apair) $ do
     gcalList <- getGoogleCalendarList cal
-    allev    <- liftIO orgEvents
+    -- allev    <- liftIO orgEvents
+    allev    <- liftIO forICS
     let events    = filter (filterEvent cal) allev
     -- forM_ events $ liftIO . print
     let diffs     = diffCalendarEvent events gcalList

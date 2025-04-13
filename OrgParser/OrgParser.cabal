@@ -42,6 +42,10 @@ library
                      , pretty-simple
                      , unordered-containers
                      , extensible
+                     , transformers
+                     , tagged
+                     , megaparsec
+                     , conduit
   default-language:    Haskell2010
   ghc-options:         -Wall
                        -Wcompat
@@ -98,6 +102,8 @@ test-suite OrgParser-test
                      , containers
                      , Win32
                      , aeson
+                     , tagged
+                     , megaparsec
                      -- , req
   default-language:   Haskell2010
   ghc-options:         -Wall
