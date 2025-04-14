@@ -14,6 +14,7 @@ import Data.Maybe                 (isJust, fromJust, isNothing)
 import Text.Megaparsec            (parse)
 import Data.Conduit
 import Data.Conduit.List          (sourceList, consume)
+import Data.List                  (drop)
 import Data.Extensible
 import Control.Lens               hiding ((:>), oneOf, noneOf)
 import System.Environment         (getEnv)
@@ -24,7 +25,7 @@ import qualified Data.Text.IO     as TxIO
 import qualified GHC.IO.Encoding  as Encoding
 
 import Org.ParseText
-import Org.Node                   (Node (..), build, scrap, scrapAll, toEvent)
+import Org.Node                   (Node (..), build, scrap, scrapAll, toEvent, cut)
 import Org.GoogleCalendar.Event   (CalendarEvent (..))
 ------------------------------------------------------------
 fileLines :: FilePath -> IO [Tx.Text]
@@ -54,7 +55,7 @@ archiveSource = do
   liftIO $ Encoding.setLocaleEncoding Encoding.utf8
   files    <- liftIO orgArchiveFiles
   contents <- liftIO $ mapM fileLines files
-  mapM_ yield (foldMap (<>) contents [])
+  mapM_ yield (foldMap (<>) (drop 6 contents) [])
 
 orgSource :: ConduitT () Tx.Text IO ()
 orgSource = noteSource <> archiveSource
@@ -92,8 +93,9 @@ titleConduit = do
 nodeConduit :: ConduitT Title (Node Title) IO ()
 nodeConduit = do
   nodeTree <- loop None
-  yield nodeTree
+  yield (cut cutFunc nodeTree)
   where
+    cutFunc ttl = (ttl ^. #label == "プログラムメモ") && (ttl ^. #level == 2)
     loop :: Node Title -> ConduitT Title (Node Title) IO (Node Title)
     loop current = do
       stream <- await
@@ -136,4 +138,4 @@ debugPreTitleSink = do
     liftIO $ print $ parse lineParse "" txt
 
 forICS :: IO [CalendarEvent]
-forICS = runConduit (archiveSource .| normalConduit .| eventSink)
+forICS = runConduit (orgSource .| normalConduit .| eventSink)

@@ -186,26 +186,3 @@ getRefreshToken = do
            jsonResponse
            query
     liftIO $ print (responseBody res :: Value)
-
--- getPermissionCode :: IO ()
--- getPermissionCode = do
---   config <- clientFromFile
---   let url :: Url 'Https
---       url = https "accounts.google.com" /: "o" /: "oauth2" /: "auth"
---       params :: [(Text, String)]
---       params = [ ("scope", "https://www.googleapis.com/auth/calendar")
---                , ("access_type", "offline")
---                , ("include_granted_scopes", "true")
---                , ("redirect_uri", "http://localhost:5173/callback")
---                , ("response_type", "code")
---                , ("client_id", clientID config)]
---       query  = foldMap (uncurry (=:)) params
---   runReq defaultHttpConfig $ do
---     res <- req
---            GET
---            url
---            NoReqBody
---            bsResponse
---            query
---     liftIO $
---       B.writeFile "c:/Users/Jumpei/Documents/home/OrgFiles/perm.html" (convertString $ responseBody res)

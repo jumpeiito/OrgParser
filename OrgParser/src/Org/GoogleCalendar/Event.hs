@@ -28,7 +28,7 @@ import  Data.Aeson.Key          (fromString)
 import  Data.Aeson.Types hiding (parse)
 import  Data.Kind               (Type)
 import  Data.Time
-import  Data.List               (inits, tails, isPrefixOf, dropWhileEnd)
+import  Data.List               (inits, tails, isPrefixOf, dropWhile)
 import  Text.Parsec
 import  Data.Functor.Const
 
@@ -106,6 +106,7 @@ testEvent =
 instance FromJSON CalendarEvent where
   parseJSON (Object v) =
     let
+      descRefine = (v .:? "description") >>= return . (dropWhile (== '\n') <$>)
       startParse = toUTCTime <$> (v .: "start") -- Parse (Maybe UTCTime)
       endParse   = toUTCTime <$> (v .: "end")   -- Parse (Maybe UTCTime)
       endTime    = repairTime <$> startParse <*> endParse
@@ -120,7 +121,7 @@ instance FromJSON CalendarEvent where
             False -> enMaybe
     in
     CalendarEvent <$> (parse dateGreenWichParse "" <$> (v .: "created"))
-                  <*> (v .:? "description")
+                  <*> descRefine
                   <*> endTime
                   <*> (v .: "etag")
                   <*> (v .: "iCalUID")

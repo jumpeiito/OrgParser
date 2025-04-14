@@ -11,6 +11,7 @@ where
 
 import  Data.List               (sort, elemIndex, dropWhileEnd)
 import  Data.Text               (Text)
+import  Data.Function           (on)
 import  Data.Time
 import  Data.Aeson
 import  Data.Aeson.Types
@@ -19,7 +20,6 @@ import  Data.String.Conversions (convertString)
 import  Control.Monad           (forM_)
 import  Control.Monad.Reader    (ask, runReaderT, liftIO, asks)
 import  Network.HTTP.Req
-import  Org.Node                (orgFileNode, nodeToCalendarEvents, orgFile, orgEvents)
 import  Org.Conduit             (forICS)
 import  Org.GoogleCalendar.Client
 import  Org.GoogleCalendar.Event
@@ -62,17 +62,13 @@ instance FromJSON CalendarResponse where
 
 makeCeeMatcher :: CalendarEventEqual -> CeeMatcher
 makeCeeMatcher (CeeEdible c1 c2) =
-  -- #description  @= (eventDescription c1 == eventDescription c2)
-  -- <: #endTime   @= (eventEnd c1 == eventEnd c2)
-  -- <: #startTime @= (eventStart c1 == eventStart c2)
-  -- <: #summary   @= (eventSummary c1 == eventSummary c2)
-  -- <: #location  @= (eventLocation c1 == eventLocation c2)
-  -- <: nil
-  CM (eventDescription c1 == eventDescription c2)
-     (eventEnd c1 == eventEnd c2)
-     (eventStart c1 == eventStart c2)
-     (eventSummary c1 == eventSummary c2)
-     (eventLocation c1 == eventLocation c2)
+  let judge f = ((==) `on` f) c1 c2 in
+  CM (judge eventDescription)
+     (judge eventEnd)
+     (judge eventStart)
+     (judge eventSummary)
+     (judge eventLocation)
+
 
 makeCalendar :: String -> (CalendarEvent -> Bool) -> Calendar
 makeCalendar key f =
@@ -176,18 +172,18 @@ updateGoogleCalendar cal = do
   apair <- accessTokenPair
   (`runReaderT` apair) $ do
     gcalList <- getGoogleCalendarList cal
-    -- allev    <- liftIO orgEvents
     allev    <- liftIO forICS
     let events    = filter (filterEvent cal) allev
-    -- forM_ events $ liftIO . print
     let diffs     = diffCalendarEvent events gcalList
     let diffVerse = diffVerseCalendarEvent events gcalList
-    forM_ (filter isEdible diffs) $ \edible -> do
-      liftIO $ print edible
-      liftIO $ print $ makeCeeMatcher edible
-    -- edibleEventsReplace cal diffs
-    -- newEventsInsert cal diffs
-    -- verseColored cal diffVerse
+    -- forM_ (filter isEdible diffs) $ \(CeeEdible c1 c2) -> do
+    --   liftIO $ print (CeeEdible c1 c2)
+    --   liftIO $ print $ makeCeeMatcher (CeeEdible c1 c2)
+    --   liftIO $ print $ show $ eventDescription c1
+    --   liftIO $ print $ show $ eventDescription c2
+    edibleEventsReplace cal diffs
+    newEventsInsert cal diffs
+    verseColored cal diffVerse
 
 edibleEventsReplace :: Calendar -> [CalendarEventEqual] -> WithAccessToken ()
 edibleEventsReplace cal events =
@@ -234,8 +230,7 @@ searchCalendar cal = do
   apair <- accessTokenPair
   (`runReaderT` apair) $ do
     gcalList <- getGoogleCalendarList cal
-    oFile    <- liftIO orgFile
-    events   <- nodeToCalendarEvents <$> liftIO (orgFileNode oFile)
+    events   <- liftIO forICS
     -- let diffs    = diffCalendarEvent events gcalList
     -- forM_ (filter isEdible diffs) replaceEvent
     -- forM_ (filter isCeeNot diffs) $ \(CeeNot c) -> insertEvent c
