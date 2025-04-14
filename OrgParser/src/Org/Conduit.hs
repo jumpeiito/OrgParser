@@ -54,7 +54,7 @@ archiveSource = do
   liftIO $ Encoding.setLocaleEncoding Encoding.utf8
   files    <- liftIO orgArchiveFiles
   contents <- liftIO $ mapM fileLines files
-  mapM_ yield (foldMap (++) contents [])
+  mapM_ yield (foldMap (<>) contents [])
 
 orgSource :: ConduitT () Tx.Text IO ()
 orgSource = noteSource <> archiveSource
@@ -136,4 +136,4 @@ debugPreTitleSink = do
     liftIO $ print $ parse lineParse "" txt
 
 forICS :: IO [CalendarEvent]
-forICS = runConduit (orgSource .| normalConduit .| eventSink)
+forICS = runConduit (archiveSource .| normalConduit .| eventSink)

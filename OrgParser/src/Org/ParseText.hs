@@ -51,7 +51,6 @@ import Control.Monad
 import Data.Extensible
 import Control.Lens hiding ((:>), noneOf)
 
-mkField "label level todo tags timestamps begin datetype active end"
 
 data TimestampType = Normal | Scheduled | Deadline | Closed
   deriving (Show, Eq)
@@ -79,15 +78,20 @@ type Timestamp = Record
   , "active"   :> Bool
   , "end"      :> Maybe UTCTime ]
 
-type Text      = Tx.Text
-type Parser    = Parsec Void Text
-type Time      = (Tagged "Hour" Int, Tagged "Minute" Int)
 type Other = Record
   [ "timestamps" :> [Timestamp]
   , "others"     :> [Text] ]
+
+type Text      = Tx.Text
+type Parser    = Parsec Void Text
+type Time      = (Tagged "Hour" Int, Tagged "Minute" Int)
 data LineBreak = LineBreak
 newtype Link   = Link (Text, Maybe Text) deriving Show
 newtype LevelEQTitle = LEQ Title
+
+-- mkField "label level todo tags timestamps paragraph properties location path"
+-- mkField "begin datetype active end"
+-- mkField "others"
 
 defTitle :: Title
 defTitle = #label         @= mempty
@@ -111,8 +115,9 @@ mplusOther o t =
   let
     oldTimestamps = t ^. #timestamps
     oldParagraph  = t ^. #paragraph
+    othersRefine  = Tx.stripEnd . Tx.concat . (^. #others)
     x1 = t   & #timestamps .~ (oldTimestamps <> (o ^. #timestamps))
-    x2 = x1  & #paragraph  .~ (oldParagraph <> Tx.concat (o ^. #others))
+    x2 = x1  & #paragraph  .~ (oldParagraph <> othersRefine o)
   in
     x2
 
@@ -158,7 +163,8 @@ japaneseDayofWeekP :: Parser (Token Text)
 japaneseDayofWeekP =
   choice $ map single "月火水木金土日"
 
-dateYMDP :: Parser (Tagged "Year" Integer, Tagged "Month" Int, Tagged "Day" Int)
+dateYMDP ::
+  Parser (Tagged "Year" Integer, Tagged "Month" Int, Tagged "Day" Int)
 dateYMDP = (,,) <$> yearP <* sep <*> monthP <* sep <*> dayP
   where
     sep = char '-'
@@ -206,7 +212,8 @@ orgstarsP = length <$> someTill (single '*') (single ' ')
 todoP :: Parser (Maybe Text)
 todoP = Nothing `option` (kwd <* many (single ' '))
   where
-    kwd = anyP $ [ Just <$> chunk k | k <- [ "TODO" , "DONE" , "WAIT" , "PEND" ]]
+    kwd = anyP $ [ Just <$> chunk k
+                 | k <- [ "TODO" , "DONE" , "WAIT" , "PEND" ]]
 
 indicateP :: Parser ()
 indicateP = try indicate >> some (single ' ') >> return ()
@@ -260,7 +267,8 @@ linkP = between (chunk "[[") (chunk "]]") linkCore
       url  <- linkToken
       guard $ "http" `Tx.isPrefixOf` url
       expr <- Nothing `option` (chunk "][" >> Just <$> linkToken)
-      return $ Tx.concat ["<a href=\"", url, "\">", url `fromMaybe` expr, "</a>"]
+      return $ Tx.concat ["<a href=\"", url, "\">"
+                         , url `fromMaybe` expr, "</a>"]
 
 linebreakP :: Parser LineBreak
 linebreakP = chunk "# linebreak" >> return LineBreak

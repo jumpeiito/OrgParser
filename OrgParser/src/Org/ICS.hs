@@ -9,7 +9,7 @@ module Org.ICS
   )
 where
 
-import  Data.List               (sort, elemIndex)
+import  Data.List               (sort, elemIndex, dropWhileEnd)
 import  Data.Text               (Text)
 import  Data.Time
 import  Data.Aeson
@@ -32,14 +32,25 @@ data CalendarEventEqual = CeeAlmost CalendarEvent
                         | CeeNot CalendarEvent
                         deriving (Eq)
 
+data CalendarResponse =
+  CalendarResponse [CalendarEvent] (Maybe String)
+  deriving (Show)
+
+data Calendar = Calendar { calendarID  :: Text
+                         , url         :: Url 'Https
+                         , filterEvent :: CalendarEvent -> Bool }
+
+data CeeMatcher = CM { cmDesc :: Bool
+                     , cmEndt :: Bool
+                     , cmStat :: Bool
+                     , cmSumm :: Bool
+                     , cmLoca :: Bool }
+  deriving (Show)
+
 instance Show CalendarEventEqual where
   show (CeeAlmost c)     = "CeeAlmost " ++ show c
   show (CeeNot c)        = "CeeNot " ++ show c
   show (CeeEdible c1 c2) = "CeeEdible\n" ++ show c1 ++ "\n" ++ show c2 ++ "\n"
-
-data CalendarResponse =
-  CalendarResponse [CalendarEvent] (Maybe String)
-  deriving (Show)
 
 instance FromJSON CalendarResponse where
   parseJSON (Object v) =
@@ -49,9 +60,19 @@ instance FromJSON CalendarResponse where
     prependFailure "parsing Calendar failed, "
     (typeMismatch "Object" invalid)
 
-data Calendar = Calendar { calendarID  :: Text
-                         , url         :: Url 'Https
-                         , filterEvent :: CalendarEvent -> Bool }
+makeCeeMatcher :: CalendarEventEqual -> CeeMatcher
+makeCeeMatcher (CeeEdible c1 c2) =
+  -- #description  @= (eventDescription c1 == eventDescription c2)
+  -- <: #endTime   @= (eventEnd c1 == eventEnd c2)
+  -- <: #startTime @= (eventStart c1 == eventStart c2)
+  -- <: #summary   @= (eventSummary c1 == eventSummary c2)
+  -- <: #location  @= (eventLocation c1 == eventLocation c2)
+  -- <: nil
+  CM (eventDescription c1 == eventDescription c2)
+     (eventEnd c1 == eventEnd c2)
+     (eventStart c1 == eventStart c2)
+     (eventSummary c1 == eventSummary c2)
+     (eventLocation c1 == eventLocation c2)
 
 makeCalendar :: String -> (CalendarEvent -> Bool) -> Calendar
 makeCalendar key f =
@@ -77,6 +98,10 @@ isEdible _ = False
 isCeeNot :: CalendarEventEqual -> Bool
 isCeeNot (CeeNot _) = True
 isCeeNot _ = False
+
+isCeeAlmost :: CalendarEventEqual -> Bool
+isCeeAlmost (CeeAlmost _) = True
+isCeeAlmost _ = False
 
 headerAuthorization :: String -> Option scheme
 headerAuthorization atoken =
@@ -157,9 +182,12 @@ updateGoogleCalendar cal = do
     -- forM_ events $ liftIO . print
     let diffs     = diffCalendarEvent events gcalList
     let diffVerse = diffVerseCalendarEvent events gcalList
-    edibleEventsReplace cal diffs
-    newEventsInsert cal diffs
-    verseColored cal diffVerse
+    forM_ (filter isEdible diffs) $ \edible -> do
+      liftIO $ print edible
+      liftIO $ print $ makeCeeMatcher edible
+    -- edibleEventsReplace cal diffs
+    -- newEventsInsert cal diffs
+    -- verseColored cal diffVerse
 
 edibleEventsReplace :: Calendar -> [CalendarEventEqual] -> WithAccessToken ()
 edibleEventsReplace cal events =

@@ -28,7 +28,7 @@ import  Data.Aeson.Key          (fromString)
 import  Data.Aeson.Types hiding (parse)
 import  Data.Kind               (Type)
 import  Data.Time
-import  Data.List               (inits, tails, isPrefixOf)
+import  Data.List               (inits, tails, isPrefixOf, dropWhileEnd)
 import  Text.Parsec
 import  Data.Functor.Const
 
