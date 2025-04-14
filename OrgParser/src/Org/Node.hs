@@ -12,11 +12,12 @@ module Org.Node
   , scrapAll
   , scrapWith
   , cut
+  , pick
   , toEvent
   )
 where
 
-import Control.Applicative        ((<|>))
+import Control.Applicative        ((<|>), Alternative (..))
 import Control.Lens               hiding ((:>), noneOf)
 import Control.Monad.State
 import qualified Data.Text        as Tx
@@ -44,6 +45,11 @@ instance Foldable Node where
   foldMap _ None = mempty
   foldMap f (Node a n c) = f a <> foldMap f c <> foldMap f n
 
+instance Alternative Node where
+  None <|> None = None
+  None <|> n    = n
+  n    <|> _    = n
+
 class Nodeable a where
   isNext         :: a -> a -> Bool
   final          :: [a] -> a -> a
@@ -57,6 +63,7 @@ class Nodeable a where
   scrapAll       :: Node a -> [a]
   scrapWith      :: (a -> Bool) -> Node a -> [a]
   cut            :: (a -> Bool) -> Node a -> Node a
+  pick           :: (a -> Bool) -> Node a -> Node a
 
   build newa oldn = buildPath newa oldn `evalState` mempty
 
@@ -95,6 +102,11 @@ class Nodeable a where
   cut f (Node a n c)
     | f a = n -- cut
     | otherwise = Node a (cut f n) (cut f c)
+
+  pick _ None = None
+  pick f (Node a n c)
+    | f a = Node a None c
+    | otherwise = (pick f n) <|> (pick f c)
 
 instance Nodeable PTX.Title where
   isNext t1 t2 = PTX.LEQ t1 == PTX.LEQ t2

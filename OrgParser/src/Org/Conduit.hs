@@ -25,7 +25,7 @@ import qualified Data.Text.IO     as TxIO
 import qualified GHC.IO.Encoding  as Encoding
 
 import Org.ParseText
-import Org.Node                   (Node (..), build, scrap, scrapAll, toEvent, cut)
+import Org.Node                   (Node (..), build, scrap, scrapAll, toEvent, cut, pick)
 import Org.GoogleCalendar.Event   (CalendarEvent (..))
 ------------------------------------------------------------
 fileLines :: FilePath -> IO [Tx.Text]
