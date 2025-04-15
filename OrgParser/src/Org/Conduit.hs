@@ -3,20 +3,17 @@
 module Org.Conduit
   (
     forICS
+  , documentSource
+  , normalConduit
+  , documentConduit
   )
 where
 
-import Control.Monad              (guard)
-import Control.Monad.State        (lift, liftIO)
-import Control.Monad.Trans.State.Strict
-                                  (execStateT, StateT, get, put)
-import Data.Maybe                 (isJust, fromJust, isNothing)
+import Control.Monad.State
 import Text.Megaparsec            (parse)
 import Data.Conduit
 import Data.Conduit.List          (sourceList, consume)
-import Data.List                  (drop)
-import Data.Extensible
-import Control.Lens               hiding ((:>), oneOf, noneOf)
+import Control.Lens               hiding ((:>), noneOf)
 import System.Environment         (getEnv)
 import System.Directory           (getDirectoryContents)
 import qualified Data.List        as Dl
@@ -25,11 +22,13 @@ import qualified Data.Text.IO     as TxIO
 import qualified GHC.IO.Encoding  as Encoding
 
 import Org.ParseText
-import Org.Node                   (Node (..), build, scrap, scrapAll, toEvent, cut, pick)
+import Org.Node                   (Node (..), build, scrap
+                                  , scrapAll, toEvent, cut)
 import Org.GoogleCalendar.Event   (CalendarEvent (..))
 ------------------------------------------------------------
 fileLines :: FilePath -> IO [Tx.Text]
 fileLines fp = do
+  liftIO $ Encoding.setLocaleEncoding Encoding.utf8
   contents <- liftIO $ TxIO.readFile fp
   return $ Tx.lines contents
 
@@ -47,8 +46,8 @@ noteSource :: ConduitT () Tx.Text IO ()
 noteSource = do
   liftIO $ Encoding.setLocaleEncoding Encoding.utf8
   filepath <- liftIO orgFile
-  lines    <- liftIO $ fileLines filepath
-  mapM_ yield lines
+  lines'   <- liftIO $ fileLines filepath
+  mapM_ yield lines'
 
 archiveSource :: ConduitT () Tx.Text IO ()
 archiveSource = do
@@ -59,6 +58,10 @@ archiveSource = do
 
 orgSource :: ConduitT () Tx.Text IO ()
 orgSource = noteSource <> archiveSource
+
+documentSource :: FilePath -> ConduitT () Tx.Text IO ()
+documentSource document = liftIO (fileLines document)
+                          >>= mapM_ yield
 ------------------------------------------------------------
 titleConduit :: ConduitT Tx.Text Title IO ()
 titleConduit = do
@@ -74,19 +77,20 @@ titleConduit = do
         Nothing -> return current
         Just txt ->
           case (current, parse lineParse "" txt) of
+            (_, Left _)             -> loop current
             (Nothing, Right (LL t)) -> loop (Just t)
             (Nothing, _)            -> loop current
             (Just c, Right (LL t))  -> do { yield c; loop (Just t) }
             (Just c, Right LB) ->
-              loop $ Just (c & #paragraph .~ ((c ^. #paragraph) <> "\\r\\n\n"))
+              loop $ Just (c & #paragraph %~ (<> "\\r\\n\n"))
             (Just c, Right (LP ("LOCATION", l))) -> do
               loop $ Just (c & #location .~ l)
-            (Just c, Right (LP ("PROPERTIES", l))) -> do
+            (Just c, Right (LP ("PROPERTIES", _))) -> do
               loop $ Just c
-            (Just c, Right (LP ("END", l))) -> do
+            (Just c, Right (LP ("END", _))) -> do
               loop $ Just c
             (Just c, Right (LP ps)) -> do
-              loop $ Just (c & #properties .~ ((c ^. #properties) <> [ps]))
+              loop $ Just (c & #properties %~ (<> [ps]))
             (Just c, Right (LO o)) -> do
               loop $ Just (o `mplusOther` c)
 
@@ -110,6 +114,19 @@ titleBackConduit = do
     Just n  -> sourceList $ scrap n
     Nothing -> return ()
 
+titleBackAllConduit :: ConduitT (Node Title) Title IO ()
+titleBackAllConduit = do
+  node <- await
+  case node of
+    Just n  -> sourceList $ scrapAll n
+    Nothing -> return ()
+
+documentConduit :: ConduitT Tx.Text Title IO ()
+documentConduit = do
+  titleConduit
+  .| nodeConduit
+  .| titleBackAllConduit
+
 normalConduit :: ConduitT Tx.Text Title IO ()
 normalConduit = do
   titleConduit
@@ -122,20 +139,24 @@ eventSink = do
   let makeEvent title = map (`toEvent` title) $ title ^. #timestamps
   return $ concatMap makeEvent titles
 
-debugSink :: ConduitT Title Void IO ()
-debugSink = do
-  liftIO $ Encoding.setLocaleEncoding Encoding.utf8
-  awaitForever (liftIO . TxIO.putStrLn . debug)
-  where
-    debug title = Tx.unwords [title ^. #label
-                             , ":"
-                             , title ^. #path]
+-- debugSink :: ConduitT Title Void IO ()
+-- debugSink = do
+--   liftIO $ Encoding.setLocaleEncoding Encoding.utf8
+--   awaitForever (liftIO . TxIO.putStrLn . debug)
+--   where
+--     debug title = Tx.unwords [title ^. #label
+--                              , ":"
+--                              , title ^. #paragraph]
 
-debugPreTitleSink :: ConduitT Tx.Text Void IO ()
-debugPreTitleSink = do
-  liftIO $ Encoding.setLocaleEncoding Encoding.utf8
-  awaitForever $ \txt ->
-    liftIO $ print $ parse lineParse "" txt
+-- debugPreTitleSink :: ConduitT Tx.Text Void IO ()
+-- debugPreTitleSink = do
+--   liftIO $ Encoding.setLocaleEncoding Encoding.utf8
+--   awaitForever $ \txt ->
+--     liftIO $ print $ parse lineParse "" txt
 
 forICS :: IO [CalendarEvent]
 forICS = runConduit (orgSource .| normalConduit .| eventSink)
+
+-- test = runConduit (documentSource "e:/OrgFiles/2025議案書.org"
+--                   .| documentConduit
+--                   .| debugSink)

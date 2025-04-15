@@ -5,6 +5,8 @@ module Org.ICS
   (
     getGoogleCalendarList
   , updateGoogleCalendar
+  , googleCalendar
+  , googleFamilyCalendar
   , insertEvent
   )
 where
@@ -24,8 +26,8 @@ import  Org.Conduit             (forICS)
 import  Org.GoogleCalendar.Client
 import  Org.GoogleCalendar.Event
 import  qualified Org.GoogleCalendar.Color as GCC
--- import  System.Directory        (getModificationTime)
 import  qualified GHC.IO.Encoding as Encoding
+import  qualified Data.Text.IO as TxIO
 
 data CalendarEventEqual = CeeAlmost CalendarEvent
                         | CeeEdible CalendarEvent CalendarEvent
@@ -133,7 +135,8 @@ getGoogleCalendarPage nextToken cal = do
         query   :: Option scheme
         pToken Nothing  = []
         pToken (Just k) = [ ("pageToken", k)]
-        options         = [ ("maxResults", "100"), ("singleEvents", "true")]
+        options         = [ ("maxResults", "100")
+                          , ("singleEvents", "true")]
                              <> pToken nextToken
         query           = foldMap (uncurry (=:)) options
 
@@ -210,7 +213,7 @@ insertEvent cal ev = do
     res  <- req POST (url cal) (ReqBodyJson ev) jsonResponse
               (headerAuthorization aToken)
     liftIO $ print (responseBody res :: CalendarEvent)
-    liftIO $ putStrLn $ eventSummary ev ++ " registered!"
+    liftIO $ TxIO.putStrLn $ eventSummary ev <> " registered!"
 
 replaceEvent :: Calendar -> CalendarEventEqual -> WithAccessToken ()
 replaceEvent cal (CeeEdible org gcal) = do
@@ -221,7 +224,7 @@ replaceEvent cal (CeeEdible org gcal) = do
     res  <- req PUT url' (ReqBodyJson org) jsonResponse
               (headerAuthorization aToken)
     liftIO $ print (responseBody res :: CalendarEvent)
-    liftIO $ putStrLn $ eventSummary org ++ " replace!"
+    liftIO $ TxIO.putStrLn $ eventSummary org <> " replace!"
 replaceEvent _ _ = return ()
 
 searchCalendar :: Calendar -> IO ()

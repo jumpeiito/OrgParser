@@ -22,28 +22,29 @@ where
 
 import  Data.Maybe              (fromMaybe, fromJust, isNothing, isJust)
 import  Data.Either             (fromRight, isLeft)
-import  Data.Tuple              (swap)
+import  Data.Function           (on)
 import  Data.Aeson
 import  Data.Aeson.Key          (fromString)
 import  Data.Aeson.Types hiding (parse)
 import  Data.Kind               (Type)
 import  Data.Time
-import  Data.List               (inits, tails, isPrefixOf, dropWhile)
+import  Data.List               (inits, tails)
 import  Text.Parsec
 import  Data.Functor.Const
+import  qualified Data.Text     as Tx
 
 data CalendarEvent =
   CalendarEvent { eventCreated     :: Either ParseError UTCTime
-                , eventDescription :: Maybe String
+                , eventDescription :: Maybe Tx.Text
                 , eventEnd         :: Maybe UTCTime
-                , eventEtag        :: String
-                , eventIcalUID     :: String
-                , eventID          :: String
+                , eventEtag        :: Tx.Text
+                , eventIcalUID     :: Tx.Text
+                , eventID          :: Tx.Text
                 , eventStart       :: Maybe UTCTime
-                , eventSummary     :: String
+                , eventSummary     :: Tx.Text
                 , eventUpdated     :: Either ParseError UTCTime
-                , eventLocation    :: Maybe String
-                , eventColorID     :: Maybe String
+                , eventLocation    :: Maybe Tx.Text
+                , eventColorID     :: Maybe Tx.Text
                 , eventBirthDay    :: Maybe Value }
   deriving (Eq)
 
@@ -69,9 +70,11 @@ instance Eq AlmostEqual where
       && (loc == loc')
 
 instance Show ColorEvent where
-  show (ColEV e) = eventSummary e
-                   ++ " Color: "
-                   ++ mempty `fromMaybe` eventColorID e
+  show (ColEV e) = Tx.unpack str
+    where
+      str = eventSummary e
+            <> " Color: "
+            <> mempty `fromMaybe` eventColorID e
 
 eventDefault :: CalendarEvent
 eventDefault =
@@ -106,7 +109,8 @@ testEvent =
 instance FromJSON CalendarEvent where
   parseJSON (Object v) =
     let
-      descRefine = (v .:? "description") >>= return . (dropWhile (== '\n') <$>)
+      descRefine = (v .:? "description")
+                   >>= return . (Tx.dropWhile (== '\n') <$>)
       startParse = toUTCTime <$> (v .: "start") -- Parse (Maybe UTCTime)
       endParse   = toUTCTime <$> (v .: "end")   -- Parse (Maybe UTCTime)
       endTime    = repairTime <$> startParse <*> endParse
@@ -155,18 +159,24 @@ instance ToJSON CalendarEvent where
         object (mainObj <> colorBox)
 
 instance Show CalendarEvent where
-  show (CalendarEvent _ d e _ _ _ s summary _ _ _ b) =
+  show (CalendarEvent _ d e _ _ _ s summary _ _ _ _) =
     let
-      st = mempty `fromMaybe` (show <$> s)
-      en = mempty `fromMaybe` (show <$> e)
+      st = mempty `fromMaybe` (Tx.pack . show <$> s)
+      en = mempty `fromMaybe` (Tx.pack . show <$> e)
     in
-      st
-      ++ "->"
-      ++ en
-      ++ " : "
-      ++ summary
-      ++ ":"
-      ++ mempty `fromMaybe` d
+      Tx.unpack $ Tx.concat [ st , "->" , en, " : "
+                            , summary, ":", mempty `fromMaybe` d]
+    -- let
+    --   st = mempty `fromMaybe` (show <$> s)
+    --   en = mempty `fromMaybe` (show <$> e)
+    -- in
+    --   st
+    --   ++ "->"
+    --   ++ en
+    --   ++ " : "
+    --   ++ summary
+    --   ++ ":"
+    --   ++ mempty `fromMaybe` d
 
 instance Ord CalendarEvent where
   (CalendarEvent _ _ _ _ _ _ s1 _ _ _ _ _) `compare`
@@ -242,7 +252,7 @@ makeTimeObject gtype utc' = object (obj1 <> obj2)
              GDateTime -> [ "timeZone" .= ("Asia/Tokyo" :: String)]
 
 doubleSwap :: (a -> b) -> (a, a) -> (b, b)
-doubleSwap f tuple = swap $ f <$> (swap $ f <$> tuple)
+doubleSwap f = uncurry ((,) `on` f)
 
 timeObject :: UTCTime -> UTCTime -> (Value, Value)
 timeObject st en
@@ -254,7 +264,7 @@ timeObject st en
 
 isPersonal :: CalendarEvent -> Bool
 isPersonal ev = case eventDescription ev of
-                  Just d  -> "Tasks/私用" `isPrefixOf` d
+                  Just d  -> "Tasks/私用" `Tx.isPrefixOf` d
                   Nothing -> False
 
 --------------------------------------------------

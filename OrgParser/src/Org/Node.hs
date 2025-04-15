@@ -21,7 +21,6 @@ import Control.Applicative        ((<|>), Alternative (..))
 import Control.Lens               hiding ((:>), noneOf)
 import Control.Monad.State
 import qualified Data.Text        as Tx
-import Data.List                  (dropWhileEnd)
 import Data.Maybe
 import qualified Org.ParseText    as PTX
 import Org.GoogleCalendar.Event
@@ -46,6 +45,7 @@ instance Foldable Node where
   foldMap f (Node a n c) = f a <> foldMap f c <> foldMap f n
 
 instance Alternative Node where
+  empty = None
   None <|> None = None
   None <|> n    = n
   n    <|> _    = n
@@ -89,7 +89,7 @@ class Nodeable a where
 
   scrapWith _ None = []
   scrapWith f (Node a n c) =
-    let second = scrapWith f n ++ scrapWith f c in
+    let second = scrapWith f c ++ scrapWith f n in
       case f a of
         True  -> a : second
         False -> second
@@ -130,11 +130,12 @@ toEvent stamp ttl =
     ttlLocation = ttl ^. #location
     location = if Tx.null ttlLocation then Nothing else Just ttlLocation
   in
-    eventDefault { eventDescription = Tx.unpack <$> desc
-                 , eventEnd         = stamp ^. #end <|> Just (stamp ^. #begin)
-                 , eventStart       = Just (stamp ^. #begin)
-                 , eventSummary     = dropWhileEnd (== ' ') (Tx.unpack (ttl ^. #label))
-                 , eventLocation    = Tx.unpack <$> location }
+    eventDefault
+  { eventDescription = desc
+  , eventEnd         = stamp ^. #end <|> Just (stamp ^. #begin)
+  , eventStart       = Just (stamp ^. #begin)
+  , eventSummary     = Tx.dropWhileEnd (== ' ') (ttl ^. #label)
+  , eventLocation    = location }
   where
     desc = case (ttl ^. #path, ttl ^. #paragraph) of
              ("", "") -> Nothing

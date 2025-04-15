@@ -27,7 +27,7 @@ data Client =
   Client { clientID     :: String
          , clientSecret :: String
          , clientOauth  :: Oauth
-         , permission    :: String }
+         , permission   :: String }
   deriving (Show)
 
 data Oauth =

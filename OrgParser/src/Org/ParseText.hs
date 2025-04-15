@@ -37,19 +37,18 @@ module Org.ParseText
   )
 where
 
-import GHC.Base (Alternative)
-import Data.Time
-import Data.Maybe (isJust, maybeToList, fromMaybe)
-import Data.Void
-import Data.Coerce
-import Data.Tagged
-import qualified Data.Text as Tx
--- import qualified Data.List as Dl
-import Text.Megaparsec
-import Text.Megaparsec.Char
-import Control.Monad
-import Data.Extensible
-import Control.Lens hiding ((:>), noneOf)
+import           GHC.Base           (Alternative)
+import           Data.Time
+import           Data.Maybe         (isJust, maybeToList, fromMaybe)
+import           Data.Void
+import           Data.Coerce
+import           Data.Tagged
+import qualified Data.Text           as Tx
+import           Text.Megaparsec
+import           Text.Megaparsec.Char
+import           Control.Monad
+import           Data.Extensible
+import           Control.Lens        hiding ((:>), noneOf)
 
 
 data TimestampType = Normal | Scheduled | Deadline | Closed
@@ -113,11 +112,9 @@ defOther = #timestamps @= mempty
 mplusOther :: Other -> Title -> Title
 mplusOther o t =
   let
-    oldTimestamps = t ^. #timestamps
-    oldParagraph  = t ^. #paragraph
     othersRefine  = Tx.stripEnd . Tx.concat . (^. #others)
-    x1 = t   & #timestamps .~ (oldTimestamps <> (o ^. #timestamps))
-    x2 = x1  & #paragraph  .~ (oldParagraph <> othersRefine o)
+    x1 = t  & #timestamps %~ (<> o ^. #timestamps)
+    x2 = x1 & #paragraph  %~ (<> othersRefine o)
   in
     x2
 
@@ -126,14 +123,14 @@ changeSlots sym value tsmp = tsmp & sym .~ value
 
 tagsP :: Parser [Text]
 tagsP = do
-  let token = some $ noneOf (" :\t\n" :: [Token Text])
-  let sep   = single ':'
-  tagname <- sep *> (Tx.pack <$> token)
+  let tkn = some $ noneOf (" :\t\n" :: [Token Text])
+  let sep = single ':'
+  tagname <- sep *> (Tx.pack <$> tkn)
              <* lookAhead sep
   loop    <- try tagsP <|> return []
   return $ tagname : loop
 
-rangeP :: (Num a, Read a, Ord a) =>
+rangeP :: (Read a, Ord a) =>
   Tagged "Max" a -> Tagged "Min" a -> Tagged "Count" Int -> Parser a
 rangeP maxi mini c = do
   parsed <- read <$> count (unTagged c) digitChar
@@ -276,7 +273,7 @@ linebreakP = chunk "# linebreak" >> return LineBreak
 -- "CLOSED: [2025-03-24 月 11:58] SCHEDULED: <2025-03-24 月>"
 otherP :: Parser Other
 otherP = do
-  let makeDef label val = defOther & label .~ [val]
+  let makeDef label' val = defOther & label' .~ [val]
   let loop another = (<>) another <$> otherP
   let literally = do
         other <- try $ someTill anySingle eof
@@ -301,7 +298,6 @@ lineParse = LO defOther `option` (ll <|> lp <|> lb <|> lo)
     lo = LO <$> try otherP
 
 -- ---- Utility -----------------------------------------------
--- makeUTC :: Integer -> MonthOfYear -> DayOfMonth -> Int -> Int -> UTCTime
 fromG ::
   Tagged "Year" Integer ->
   Tagged "Month" Int ->
@@ -321,8 +317,6 @@ makeUTC y m d h mi = UTCTime (fromG y m d) dayOfSeconds
     dayOfSeconds =
       secondsToDiffTime $ toInteger h * 3600 + toInteger mi * 60
 
--- manyTill' :: Stream s m t =>
---              ParsecT s u m a1 -> ParsecT s u m a2 -> ParsecT s u m [a1]
 manyTill' :: MonadParsec e s f => f Char -> f a -> f Tx.Text
 manyTill' p pend = loop
   where
@@ -333,10 +327,10 @@ anyP :: Alternative f => [f a] -> f a
 anyP (p:parsers) = foldl (<|>) p parsers
 anyP [] = undefined
 
-pt
-  :: (ShowErrorComponent e, Show a) =>
-     Parsec e Text a -> String -> IO ()
-pt parser str = parser `parseTest` Tx.pack str
+-- pt
+--   :: (ShowErrorComponent e, Show a) =>
+--      Parsec e Text a -> String -> IO ()
+-- pt parser str = parser `parseTest` Tx.pack str
 
 instance Eq LevelEQTitle where
   (LEQ t1) == (LEQ t2) = t1 ^. #level == t2 ^. #level
