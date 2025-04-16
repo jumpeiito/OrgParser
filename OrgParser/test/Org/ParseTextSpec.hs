@@ -48,15 +48,18 @@ numText2 =
 
 spec :: Spec
 spec = do
+  let f = tagsP
   describe "tagsP" $ do
     it "(1)" $ do
-      parse tagsP "" ":hoge:" `shouldBe` Right ["hoge"]
+      parse f "" ":hoge:" `shouldBe` Right ["hoge"]
     it "(2)" $ do
-      parse tagsP "" ":hoge:foo:" `shouldBe` Right ["hoge", "foo"]
+      parse f "" ":hoge:foo:" `shouldBe` Right ["hoge", "foo"]
     it "(3)" $ do
-      isLeft (parse tagsP "" "") `shouldBe` True
+      isLeft (parse f "" "") `shouldBe` True
     it "(4)" $ do
-      isLeft (parse tagsP "" "::") `shouldBe` True
+      isLeft (parse f "" ":") `shouldBe` True
+    it "(5)" $ do
+      isLeft (parse f "" "::") `shouldBe` True
   describe "yearP" $ do
     it "(1)" $ do
       let years = [2024..2099] :: [Tagged "Year" Integer]
@@ -145,14 +148,15 @@ spec = do
     it "(5)" $ do
       isLeft (parse dateYMDP "" "2025-04-1") `shouldBe` True
   describe "timestampTypeP" $ do
+    let f = timestampTypeRefineP
     it "(1)" $ do
-      parse timestampTypeP "" "SCHEDULED: " `shouldBe` Right Scheduled
+      parse f "" "SCHEDULED: " `shouldBe` Right Scheduled
     it "(2)" $ do
-      parse timestampTypeP "" "DEADLINE: " `shouldBe` Right Deadline
+      parse f "" "DEADLINE: " `shouldBe` Right Deadline
     it "(3)" $ do
-      parse timestampTypeP "" "CLOSED: " `shouldBe` Right Closed
+      parse f "" "CLOSED: " `shouldBe` Right Closed
     it "(4)" $ do
-      parse timestampTypeP "" "" `shouldBe` Right Normal
+      parse f "" "" `shouldBe` Right Normal
   describe "orgstarsP" $ do
     it "(1)" $ do
       parse orgstarsP "" "** " `shouldBe` Right 2
@@ -468,6 +472,7 @@ spec = do
                 <: #path       @= mempty
                 <: nil)
   describe "otherP" $ do
+    let f = otherRefineP
     it "(1)" $ do
       let
         p :: Parser ([Token Tx.Text], Timestamp)
@@ -481,7 +486,7 @@ spec = do
                  <: #end @= Nothing
                  <: nil)
     it "(2)" $ do
-      parse otherP "" "<2025-04-10 月 10:00> CLOSED: <2026-04-01 火>"
+      parse f "" "<2025-04-10 月 10:00> CLOSED: <2026-04-01 火>"
         `shouldBe`
         Right ( #timestamps @= [ #begin @= makeUTC 2025 4 10 10 0
                                  <: #datetype @= Normal
@@ -496,7 +501,7 @@ spec = do
                 <: #others @= mempty
                 <: nil)
     it "(3)" $ do
-      parse otherP "" "hoge <2025-04-10 月 10:00>"
+      parse f "" "hoge <2025-04-10 月 10:00>"
         `shouldBe`
         Right ( #timestamps @= [ #begin @= makeUTC 2025 4 10 10 0
                                  <: #datetype @= Normal
@@ -506,7 +511,7 @@ spec = do
                 <: #others @= ["hoge "]
                 <: nil)
     it "(4)" $ do
-      parse otherP "" "hoge <2025-04-10 月> foo"
+      parse f "" "hoge <2025-04-10 月> foo"
         `shouldBe`
         Right ( #timestamps @= [ #begin @= makeUTC 2025 4 10 0 0
                                  <: #datetype @= Normal
@@ -516,7 +521,7 @@ spec = do
                 <: #others @= ["hoge ", "foo"]
                 <: nil)
     it "(5)" $ do
-      parse otherP "" "hoge <2025-04-10 月> foo [[http://google.co.jp][Google]] buz! SCHEDULED: <2025-04-11 火 12:00-17:00>"
+      parse f "" "hoge <2025-04-10 月> foo [[http://google.co.jp][Google]] buz! SCHEDULED: <2025-04-11 火 12:00-17:00>"
         `shouldBe`
         Right ( #timestamps @= [ #begin @= makeUTC 2025 4 10 0 0
                                  <: #datetype @= Normal
@@ -591,4 +596,57 @@ spec = do
     --            <: #link @= mempty
     --            <: nil)
 
+  describe "otherP" $ do
+    let f = otherRefineP
+    it "(1)" $ do
+      parse f "" "  <2025-01-01 月 10:00-12:00> CLOSED: <2025-04-01 火 11:00>"
+        `shouldBe`
+        Right ( #timestamps @=
+                [ #begin @= makeUTC 2025 1 1 10 0
+                  <: #datetype @= Normal
+                  <: #active   @= True
+                  <: #end      @= (Just $ makeUTC 2025 1 1 12 0)
+                  <: nil
+                , #begin @= makeUTC 2025 4 1 11 0
+                  <: #datetype @= Closed
+                  <: #active   @= True
+                  <: #end      @= Nothing
+                  <: nil]
+                <: #others @= ["  "]
+                <: nil )
+    it "(2)" $ do
+      parse f "" "Haskell Compiler" `shouldBe`
+        Right ( #timestamps @= []
+              <: #others @= ["Haskell Compiler"]
+              <: nil )
+    it "(3)" $ do
+      parse f "" "[[http://www.google.co.jp][Google]]" `shouldBe`
+        Right ( #timestamps @= []
+              <: #others @=
+                ["<a href=\"http://www.google.co.jp\">Google</a>"]
+              <: nil )
+    it "(4)" $ do
+      parse f "" "[[http://www.google.co.jp]]" `shouldBe`
+        Right ( #timestamps @= []
+              <: #others @=
+                ["<a href=\"http://www.google.co.jp\">http://www.google.co.jp</a>"]
+              <: nil )
+    it "(5)" $ do
+      parse f "" "<2025-04-01 土 10:00>" `shouldBe`
+        Right ( #timestamps @=
+                [ #begin @= makeUTC 2025 4 1 10 0
+                  <: #datetype @= Normal
+                  <: #active @= True
+                  <: #end @= Nothing
+                  <: nil]
+              <: #others @= []
+              <: nil )
+    it "(6)" $ do
+      parse f "" "Google [[http://www.google.co.jp][Google]] link"
+        `shouldBe`
+        Right ( #timestamps @= []
+              <: #others @= ["Google "
+                            , "<a href=\"http://www.google.co.jp\">Google</a>"
+                            , "link"]
+              <: nil )
 

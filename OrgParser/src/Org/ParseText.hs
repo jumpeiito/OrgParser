@@ -1,6 +1,7 @@
 {-# LANGUAGE TemplateHaskell, DataKinds, TypeOperators, FlexibleContexts #-}
 {-# LANGUAGE OverloadedLabels, OverloadedStrings #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE StrictData #-}
 {-# OPTIONS_GHC -fno-warn-unticked-promoted-constructors #-}
 module Org.ParseText
   (
@@ -21,9 +22,10 @@ module Org.ParseText
   , orgstarsP
   , todoP
   , titleP
-  , otherP
+  -- , otherP
+  , otherRefineP
+  , timestampTypeRefineP
   , makeUTC
-  , manyTill'
   , defOther
   , lineParse
   , defTitle
@@ -173,12 +175,19 @@ timestampTypeP = Normal `option` anyP parsers
               | (k, t) <- zip ["SCHEDULED: ", "DEADLINE: ", "CLOSED: "]
                               [Scheduled, Deadline, Closed]]
 
+timestampTypeRefineP :: Parser TimestampType
+timestampTypeRefineP =
+  try (chunk "SCHEDULED: "    >> return Scheduled)
+  <|> try (chunk "DEADLINE: " >> return Deadline)
+  <|> try (chunk "CLOSED: "   >> return Closed)
+  <|> return Normal
+
 timestampCoreP :: Parser Timestamp
 timestampCoreP = do
   let sep = single ' '
   (y, m, d)     <- dateYMDP
   _             <- sep >> japaneseDayofWeekP
-  ((h, mi), en) <- (sep >> timeP) <|> return ((0, 0), Nothing)
+  ((h, mi), en) <- ((0, 0), Nothing) `option` (sep >> timeP)
   return $
     #begin @= makeUTC y m d h mi
     <: #datetype @= Normal
@@ -202,6 +211,7 @@ timestampP = do
   let endtime = (ts1 ^. #end) `mplus` ((^. #begin) <$> ts2)
   return $ foldr ($) ts1 [ #datetype `changeSlots` stampStyle
                          , #end `changeSlots` endtime]
+{-# INLINE timestampP #-}
 
 orgstarsP :: Parser Int
 orgstarsP = length <$> someTill (single '*') (single ' ')
@@ -230,11 +240,11 @@ titleP = do
   stars  <- orgstarsP
   todo   <- todoP
   _      <- indicateP <|> return ()
-  ttl    <- try (manyTill' anySingle titleAttachment)
-            <|> (Tx.pack <$> many anySingle)
+  ttl    <- try (manyTill anySingle (lookAhead titleAttachment))
+            <|> many anySingle
   (g, t) <- (Nothing, []) `option` titleAttachment
   return $
-    #label         @= Tx.stripEnd ttl
+    #label         @= Tx.stripEnd (Tx.pack ttl)
     <: #level      @= stars
     <: #todo       @= todo
     <: #tags       @= t
@@ -270,24 +280,32 @@ linkP = between (chunk "[[") (chunk "]]") linkCore
 linebreakP :: Parser LineBreak
 linebreakP = chunk "# linebreak" >> return LineBreak
 
--- "CLOSED: [2025-03-24 月 11:58] SCHEDULED: <2025-03-24 月>"
-otherP :: Parser Other
-otherP = do
-  let makeDef label' val = defOther & label' .~ [val]
-  let loop another = (<>) another <$> otherP
-  let literally = do
-        other <- try $ someTill anySingle eof
-        loop (#others `makeDef` Tx.pack other)
-  let link' = do
-        lk <- try (linkP <* many (single ' '))
-        loop (#others `makeDef` lk)
-  let timestamp' = do
-        ts <- try (timestampP <* many (single ' '))
-        loop (#timestamps `makeDef` ts)
-  let withP = do
-        other <- try $ manyTill' anySingle (timestamp' <|> link')
-        loop (#others `makeDef` other)
-  defOther `option` (timestamp' <|> link' <|> withP <|> literally)
+-- ((someTill (single ' ') (lookAhead (single ':')) >> (single ':')) :: Parser (Token Tx.Text)) `parseTest` Tx.pack "   :"
+-- >>> ':'
+
+otherRefineP :: Parser Other
+otherRefineP = def `option` (loop def <|> literalOnly def)
+  where
+    def = defOther
+    spaces = many (single ' ')
+    loop :: Other -> Parser Other
+    loop o = eof' o <|> timestamp' o <|> link' o <|> withOther o
+    eof' o = eof >> return o
+    timestamp' oth = do
+      ts <- try (timestampP <* spaces)
+      loop (oth & #timestamps %~ (<> [ts]))
+    link' oth = do
+      lk <- try (linkP <* spaces)
+      loop (oth & #others %~ (<> [lk]))
+    withOther oth = do
+      let end'  = lookAhead (timestamp' oth <|> link' oth)
+      let withP = manyTill anySingle end'
+      other <- try withP <|> some anySingle
+      loop (oth & #others %~ (<> [Tx.pack other]))
+    literalOnly oth = do
+      lo <- Tx.pack <$> manyTill anySingle eof
+      loop (oth & #others %~ (<> [lo]))
+{-# INLINE otherRefineP #-}
 
 lineParse :: Parser Line
 lineParse = LO defOther `option` (ll <|> lp <|> lb <|> lo)
@@ -295,7 +313,8 @@ lineParse = LO defOther `option` (ll <|> lp <|> lb <|> lo)
     ll = LL <$> try titleP
     lp = LP <$> try propertyP
     lb = try linebreakP >> return LB
-    lo = LO <$> try otherP
+    lo = LO <$> try otherRefineP
+{-# INLINE lineParse #-}
 
 -- ---- Utility -----------------------------------------------
 fromG ::
@@ -316,12 +335,6 @@ makeUTC y m d h mi = UTCTime (fromG y m d) dayOfSeconds
   where
     dayOfSeconds =
       secondsToDiffTime $ toInteger h * 3600 + toInteger mi * 60
-
-manyTill' :: MonadParsec e s f => f Char -> f a -> f Tx.Text
-manyTill' p pend = loop
-  where
-    loop = do { _ <- lookAhead pend; return mempty }
-           <|> do { x <- p; xs <- loop; return (x `Tx.cons` xs)}
 
 anyP :: Alternative f => [f a] -> f a
 anyP (p:parsers) = foldl (<|>) p parsers

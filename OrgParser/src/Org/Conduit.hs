@@ -139,24 +139,25 @@ eventSink = do
   let makeEvent title = map (`toEvent` title) $ title ^. #timestamps
   return $ concatMap makeEvent titles
 
--- debugSink :: ConduitT Title Void IO ()
--- debugSink = do
---   liftIO $ Encoding.setLocaleEncoding Encoding.utf8
---   awaitForever (liftIO . TxIO.putStrLn . debug)
---   where
---     debug title = Tx.unwords [title ^. #label
---                              , ":"
---                              , title ^. #paragraph]
+_debugSink :: ConduitT Title Void IO ()
+_debugSink = do
+  liftIO $ Encoding.setLocaleEncoding Encoding.utf8
+  awaitForever (liftIO . TxIO.putStrLn . debug)
+  where
+    debug title = Tx.unwords [title ^. #label
+                             , ":"
+                             , title ^. #paragraph]
 
--- debugPreTitleSink :: ConduitT Tx.Text Void IO ()
--- debugPreTitleSink = do
---   liftIO $ Encoding.setLocaleEncoding Encoding.utf8
---   awaitForever $ \txt ->
---     liftIO $ print $ parse lineParse "" txt
+_debugPreTitleSink :: ConduitT Tx.Text Void IO ()
+_debugPreTitleSink = do
+  liftIO $ Encoding.setLocaleEncoding Encoding.utf8
+  awaitForever $ \txt ->
+    liftIO $ print $ parse lineParse "" txt
 
 forICS :: IO [CalendarEvent]
 forICS = runConduit (orgSource .| normalConduit .| eventSink)
 
--- test = runConduit (documentSource "e:/OrgFiles/2025議案書.org"
---                   .| documentConduit
---                   .| debugSink)
+_test :: IO ()
+_test = runConduit (documentSource "e:/OrgFiles/2025議案書.org"
+                  .| documentConduit
+                  .| _debugSink)

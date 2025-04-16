@@ -95,16 +95,16 @@ eventDefault =
 
 testEvent :: CalendarEvent
 testEvent =
-  eventDefault { eventDescription = Just "<a href=\"http://foo\">hoge</a>"
-
-               , eventEnd = Just $ UTCTime (fromGregorian 2025 4 1) (secondsToDiffTime 0)
-               , eventEtag = "test etag"
-               , eventIcalUID = "testUID"
-               , eventID = "testID"
-               , eventStart = Just $ UTCTime (fromGregorian 2025 3 31) (secondsToDiffTime 0)
-               , eventSummary = "test summary"
-               , eventLocation = Just "京建労会館"
-               , eventColorID  = Just "11" }
+  eventDefault
+  { eventDescription = Just "<a href=\"http://foo\">hoge</a>"
+  , eventEnd = Just $ UTCTime (fromGregorian 2025 4 1) (secondsToDiffTime 0)
+  , eventEtag = "test etag"
+  , eventIcalUID = "testUID"
+  , eventID = "testID"
+  , eventStart = Just $ UTCTime (fromGregorian 2025 3 31) (secondsToDiffTime 0)
+  , eventSummary = "test summary"
+  , eventLocation = Just "京建労会館"
+  , eventColorID  = Just "11" }
 
 instance FromJSON CalendarEvent where
   parseJSON (Object v) =

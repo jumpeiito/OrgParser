@@ -226,15 +226,4 @@ spec = do
     it "orgLinkParse2" $ do
       parse orgLinkParse "" "[[http://www.google.co.jp][Google]]" `shouldBe`
         Right (ParserLink "http://www.google.co.jp" (Just "Google"))
-    -- it "orgTitleLineCoreParse1" $ do
-    --   parse orgTitleLineCoreParse "" "** Org Test 1 <2024-12-22 @> :buz:boo:" `shouldBe`
-    --     Right [ OrgTitle { title = "Org Test 1 ", level = 2, todo = Nothing, children = []}
-    --           , OrgTimeStamp { begin = mktime 2024 12 22 0 0, end = Nothing, datetype = Normal, active = True}
-    --           , OrgTags ["buz", "boo"]]
-    -- it "orgOtherLineCoreParse1" $ do
-    --   let str = " other <2024-12-12 @> foo SCHEDULED: <2024-12-21 @ 13:00>"
-    --   parse orgOtherLineCoreParse "" str `shouldBe`
-    --     Right [ OrgOther " other "
-    --           , OrgTimeStamp { begin = mktime 2024 12 12 0 0, end = Nothing, datetype = Normal, active = True}
-    --           , OrgOther " foo "
-    --           , OrgTimeStamp { begin = mktime 2024 12 21 13 0, end = Nothing, datetype = Scheduled, active = True}]
+

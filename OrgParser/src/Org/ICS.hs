@@ -7,11 +7,13 @@ module Org.ICS
   , updateGoogleCalendar
   , googleCalendar
   , googleFamilyCalendar
+  , searchCalendar
+  , getColors
   , insertEvent
   )
 where
 
-import  Data.List               (sort, elemIndex, dropWhileEnd)
+import  Data.List               (sort, elemIndex)
 import  Data.Text               (Text)
 import  Data.Function           (on)
 import  Data.Time
@@ -20,7 +22,7 @@ import  Data.Aeson.Types
 import  Data.Maybe              (fromJust, isJust)
 import  Data.String.Conversions (convertString)
 import  Control.Monad           (forM_)
-import  Control.Monad.Reader    (ask, runReaderT, liftIO, asks)
+import  Control.Monad.Reader    (runReaderT, liftIO, asks)
 import  Network.HTTP.Req
 import  Org.Conduit             (forICS)
 import  Org.GoogleCalendar.Client
@@ -62,15 +64,6 @@ instance FromJSON CalendarResponse where
     prependFailure "parsing Calendar failed, "
     (typeMismatch "Object" invalid)
 
-makeCeeMatcher :: CalendarEventEqual -> CeeMatcher
-makeCeeMatcher (CeeEdible c1 c2) =
-  let judge f = ((==) `on` f) c1 c2 in
-  CM (judge eventDescription)
-     (judge eventEnd)
-     (judge eventStart)
-     (judge eventSummary)
-     (judge eventLocation)
-
 
 makeCalendar :: String -> (CalendarEvent -> Bool) -> Calendar
 makeCalendar key f =
@@ -96,10 +89,6 @@ isEdible _ = False
 isCeeNot :: CalendarEventEqual -> Bool
 isCeeNot (CeeNot _) = True
 isCeeNot _ = False
-
-isCeeAlmost :: CalendarEventEqual -> Bool
-isCeeAlmost (CeeAlmost _) = True
-isCeeAlmost _ = False
 
 headerAuthorization :: String -> Option scheme
 headerAuthorization atoken =
@@ -233,7 +222,7 @@ searchCalendar cal = do
   apair <- accessTokenPair
   (`runReaderT` apair) $ do
     gcalList <- getGoogleCalendarList cal
-    events   <- liftIO forICS
+   -- events   <- liftIO forICS
     -- let diffs    = diffCalendarEvent events gcalList
     -- forM_ (filter isEdible diffs) replaceEvent
     -- forM_ (filter isCeeNot diffs) $ \(CeeNot c) -> insertEvent c
@@ -244,18 +233,34 @@ searchCalendar cal = do
 getColors :: IO ()
 getColors = do
   (aToken, _) <- accessTokenPair
-  let url = https "www.googleapis.com"
-            /: "calendar"
-            /: "v3"
-            /: "colors"
+  let url' = https "www.googleapis.com"
+             /: "calendar"
+             /: "v3"
+             /: "colors"
   runReq defaultHttpConfig $ do
-    res  <- req GET url NoReqBody jsonResponse
+    res  <- req GET url' NoReqBody jsonResponse
               (headerAuthorization aToken)
     liftIO $ print (responseBody res :: GCC.ColorSet)
     -- liftIO $ putStrLn $ eventSummary org ++ " replace!"
 -- GET https://www.googleapis.com/calendar/v3/colors
 
 
-testInsert = do
+---- for debug --------------------------------------------------
+_isCeeAlmost :: CalendarEventEqual -> Bool
+_isCeeAlmost (CeeAlmost _) = True
+_isCeeAlmost _ = False
+
+_makeCeeMatcher :: CalendarEventEqual -> CeeMatcher
+_makeCeeMatcher (CeeEdible c1 c2) =
+  let judge f = ((==) `on` f) c1 c2 in
+  CM (judge eventDescription)
+     (judge eventEnd)
+     (judge eventStart)
+     (judge eventSummary)
+     (judge eventLocation)
+_makeCeeMatcher _ = error ""
+
+_testInsert :: IO ()
+_testInsert = do
   apair <- accessTokenPair
   insertEvent googleFamilyCalendar testEvent `runReaderT` apair

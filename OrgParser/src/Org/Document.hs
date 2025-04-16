@@ -46,7 +46,7 @@ addCounter :: Int -> ConduitMapState Int
 addCounter level' = do
   -- 例えば[(1, 2), (2, 1), (3, 3)]のようなMapをStateとして持っている。
   -- このMapは2番目のレベル1の中の最初のレベル2で,さらにその下の
-  -- 3番目のレベル3までカウントしたという意味。
+  -- レベル3は3番目までカウントしたという意味。
   counterMap <- get
   case level' `M.member` counterMap of
     -- 上記でいうと,Mapにないレベル4のTitleが来た場合

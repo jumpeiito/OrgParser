@@ -6,12 +6,9 @@ import Org.Document
 import Org.ICS            (updateGoogleCalendar, googleCalendar
                           , googleFamilyCalendar)
 import Options.Applicative
-import Criterion.Main
 
 main :: IO ()
-main = defaultMain
-  [ bench "show/double" $ whnf documents "e:/OrgFiles/2025議案書.org"]
--- main = execParser argumentParserInfo >>= runMain
+main = execParser argumentParserInfo >>= runMain
 
 runMain :: Argument -> IO ()
 runMain Argument {..} = do
