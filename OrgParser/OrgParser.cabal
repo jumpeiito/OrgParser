@@ -50,6 +50,7 @@ library
                      , tagged
                      , megaparsec
                      , conduit
+                     , text-builder
   default-language:    Haskell2010
   ghc-options:         -Wall
                        -Wcompat
@@ -75,7 +76,7 @@ executable OrgParser
                      , Win32
                      , aeson
                      , optparse-applicative
-                     , criterion
+                     , text-builder
                      -- , req
   default-language:    Haskell2010
   ghc-options:         -Wall

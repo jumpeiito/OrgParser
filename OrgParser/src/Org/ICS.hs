@@ -170,7 +170,7 @@ updateGoogleCalendar cal = do
     let diffVerse = diffVerseCalendarEvent events gcalList
     -- forM_ (filter isEdible diffs) $ \(CeeEdible c1 c2) -> do
     --   liftIO $ print (CeeEdible c1 c2)
-    --   liftIO $ print $ makeCeeMatcher (CeeEdible c1 c2)
+    --   liftIO $ print $ _makeCeeMatcher (CeeEdible c1 c2)
     --   liftIO $ print $ show $ eventDescription c1
     --   liftIO $ print $ show $ eventDescription c2
     edibleEventsReplace cal diffs

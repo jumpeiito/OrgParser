@@ -45,7 +45,8 @@ import           Data.Maybe         (isJust, maybeToList, fromMaybe)
 import           Data.Void
 import           Data.Coerce
 import           Data.Tagged
-import qualified Data.Text           as Tx
+import qualified Data.Text              as Tx
+import qualified Text.Builder           as TxLB
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import           Control.Monad
@@ -60,7 +61,7 @@ data Line = LL Title
           | LP (Text, Text)
           | LB
           | LO Other
-          deriving (Show, Eq)
+          deriving (Show)
 
 type Title = Record
   [ "label"      :> Text
@@ -68,10 +69,10 @@ type Title = Record
   , "todo"       :> Maybe Text
   , "tags"       :> [Text]
   , "timestamps" :> [Timestamp]
-  , "paragraph"  :> Text
+  , "paragraph"  :> TxLB.Builder
   , "properties" :> [(Text, Text)]
   , "location"   :> Text
-  , "path"       :> Text ]
+  , "path"       :> TxLB.Builder ]
 
 type Timestamp = Record
   [ "begin"    :> UTCTime
@@ -81,7 +82,7 @@ type Timestamp = Record
 
 type Other = Record
   [ "timestamps" :> [Timestamp]
-  , "others"     :> [Text] ]
+  , "others"     :> TxLB.Builder ]
 
 type Text      = Tx.Text
 type Parser    = Parsec Void Text
@@ -114,7 +115,8 @@ defOther = #timestamps @= mempty
 mplusOther :: Other -> Title -> Title
 mplusOther o t =
   let
-    othersRefine  = Tx.stripEnd . Tx.concat . (^. #others)
+    -- othersRefine  = Tx.stripEnd . Tx.concat . (^. #others)
+    othersRefine = (^. #others)
     x1 = t  & #timestamps %~ (<> o ^. #timestamps)
     x2 = x1 & #paragraph  %~ (<> othersRefine o)
   in
@@ -288,6 +290,7 @@ otherRefineP = def `option` (loop def <|> literalOnly def)
   where
     def = defOther
     spaces = many (single ' ')
+    toBuilder = TxLB.text . Tx.pack
     loop :: Other -> Parser Other
     loop o = eof' o <|> timestamp' o <|> link' o <|> withOther o
     eof' o = eof >> return o
@@ -296,15 +299,15 @@ otherRefineP = def `option` (loop def <|> literalOnly def)
       loop (oth & #timestamps %~ (<> [ts]))
     link' oth = do
       lk <- try (linkP <* spaces)
-      loop (oth & #others %~ (<> [lk]))
+      loop (oth & #others %~ (<> TxLB.text lk))
     withOther oth = do
       let end'  = lookAhead (timestamp' oth <|> link' oth)
       let withP = manyTill anySingle end'
       other <- try withP <|> some anySingle
-      loop (oth & #others %~ (<> [Tx.pack other]))
+      loop (oth & #others %~ (<> toBuilder other))
     literalOnly oth = do
-      lo <- Tx.pack <$> manyTill anySingle eof
-      loop (oth & #others %~ (<> [lo]))
+      lo <- manyTill anySingle eof
+      loop (oth & #others %~ (<> toBuilder lo))
 {-# INLINE otherRefineP #-}
 
 lineParse :: Parser Line

@@ -9,22 +9,21 @@ module Org.Conduit
   )
 where
 
-import Control.Monad.State
-import Text.Megaparsec            (parse)
-import Data.Conduit
-import Data.Conduit.List          (sourceList, consume)
-import Control.Lens               hiding ((:>), noneOf)
-import System.Environment         (getEnv)
-import System.Directory           (getDirectoryContents)
-import qualified Data.List        as Dl
-import qualified Data.Text        as Tx
-import qualified Data.Text.IO     as TxIO
-import qualified GHC.IO.Encoding  as Encoding
-
-import Org.ParseText
-import Org.Node                   (Node (..), build, scrap
-                                  , scrapAll, toEvent, cut)
-import Org.GoogleCalendar.Event   (CalendarEvent (..))
+import           Control.Monad.State
+import           Text.Megaparsec            (parse)
+import           Data.Conduit
+import           Data.Conduit.List          (sourceList, consume)
+import           Control.Lens               hiding ((:>), noneOf)
+import           System.Environment         (getEnv)
+import           System.Directory           (getDirectoryContents)
+import qualified Data.List                  as Dl
+import qualified Data.Text                  as Tx
+import qualified Data.Text.IO               as TxIO
+import qualified GHC.IO.Encoding            as Encoding
+import           Org.ParseText
+import           Org.Node                   (Node (..), build, scrap
+                                            , scrapAll, toEvent, cut)
+import           Org.GoogleCalendar.Event   (CalendarEvent (..))
 ------------------------------------------------------------
 fileLines :: FilePath -> IO [Tx.Text]
 fileLines fp = do
@@ -139,14 +138,14 @@ eventSink = do
   let makeEvent title = map (`toEvent` title) $ title ^. #timestamps
   return $ concatMap makeEvent titles
 
-_debugSink :: ConduitT Title Void IO ()
-_debugSink = do
-  liftIO $ Encoding.setLocaleEncoding Encoding.utf8
-  awaitForever (liftIO . TxIO.putStrLn . debug)
-  where
-    debug title = Tx.unwords [title ^. #label
-                             , ":"
-                             , title ^. #paragraph]
+-- _debugSink :: ConduitT Title Void IO ()
+-- _debugSink = do
+--   liftIO $ Encoding.setLocaleEncoding Encoding.utf8
+--   awaitForever (liftIO . TxIO.putStrLn . debug)
+--   where
+--     debug title = Tx.unwords [title ^. #label
+--                              , ":"
+--                              , title ^. #paragraph]
 
 _debugPreTitleSink :: ConduitT Tx.Text Void IO ()
 _debugPreTitleSink = do
@@ -157,7 +156,7 @@ _debugPreTitleSink = do
 forICS :: IO [CalendarEvent]
 forICS = runConduit (orgSource .| normalConduit .| eventSink)
 
-_test :: IO ()
-_test = runConduit (documentSource "e:/OrgFiles/2025議案書.org"
-                  .| documentConduit
-                  .| _debugSink)
+-- _test :: IO ()
+-- _test = runConduit (documentSource "e:/OrgFiles/2025議案書.org"
+--                   .| documentConduit
+--                   .| _debugSink)

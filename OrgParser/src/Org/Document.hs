@@ -8,6 +8,8 @@ where
 
 import qualified Data.Map.Strict  as M
 import qualified Data.Text        as Tx
+import qualified Data.Text.IO     as TxIO
+import qualified Text.Builder     as TxLB
 import Control.Monad.IO.Class
 import Control.Monad.Trans
 import Control.Monad.Trans.State.Strict
@@ -19,28 +21,37 @@ import Org.Conduit              (documentSource, documentConduit)
 
 type ConduitMapState = StateT (M.Map Int Int) (ConduitT Title Void IO)
 
-data YamlLine = YL Int Title
+data YamlLine = YL Int Title deriving (Show)
 
-jNum, jMaruNum :: M.Map Int String
+jNum, jMaruNum :: M.Map Int Tx.Text
 jNum     = M.fromList [(1, "１"), (2, "２"), (3, "３"), (4, "４"), (5, "５"),
                        (6, "６"), (7, "７"), (8, "８"), (9, "９"), (0, "０")]
 jMaruNum = M.fromList [(1, "①"), (2, "②"), (3, "③"), (4, "④"), (5, "⑤"),
                        (6, "⑥"), (7, "⑦"), (8, "⑧"), (9, "⑨")]
 
-instance Show YamlLine where
-  show (YL counter a)
-    | a ^. #level == 1 = bracket 1 mempty                 mempty
-    | a ^. #level == 2 = bracket 2 (jNum M.! counter)     "．"
-    | a ^. #level == 3 = bracket 3 (jMaruNum M.! counter) "　"
-    | a ^. #level == 4 = bracket 4 (jNum M.! counter)     "）"
-    | a ^. #level == 5 = bracket 5 "・"                   mempty
-    | otherwise = error "level must be 1 upto 5"
-    where
-      bracket :: Int -> String -> String -> String
-      bracket lv titlen after =
-        concat ["- [", show lv, ", ", "\"", titlen , after
-               , Tx.unpack $ a ^. #label, "\", \""
-               , Tx.unpack $ a ^. #paragraph, "\"]"]
+textBuild :: YamlLine -> Tx.Text
+textBuild (YL counter a)
+  | a ^. #level == 1 = bracket 1 mempty                 mempty
+  | a ^. #level == 2 = bracket 2 (jNum M.! counter)     "．"
+  | a ^. #level == 3 = bracket 3 (jMaruNum M.! counter) "　"
+  | a ^. #level == 4 = bracket 4 (jNum M.! counter)     "）"
+  | a ^. #level == 5 = bracket 5 "・"                   mempty
+  | otherwise = error "level must be 1 upto 5"
+  where
+    bracket :: Int -> Tx.Text -> Tx.Text -> Tx.Text
+    bracket lv titlen after =
+      let
+        postTitle = TxLB.text (titlen <> after)
+        comma     = TxLB.text (", ")
+        quote     = TxLB.text ("\"")
+        builders  =
+          [ TxLB.text "- [", TxLB.decimal lv
+          , comma, quote, postTitle
+          , TxLB.text (a ^. #label), quote, comma
+          , a ^. #paragraph , quote
+          , TxLB.text "]"]
+      in
+        TxLB.run $ foldMap (<>) builders mempty
 
 addCounter :: Int -> ConduitMapState Int
 addCounter level' = do
@@ -79,7 +90,7 @@ documentSink = do
           Nothing -> return ()
           Just ttl -> do
             counter <- addCounter (ttl ^. #level)
-            liftIO $ putStrLn $ show $ YL counter ttl
+            liftIO $ TxIO.putStrLn $ textBuild $ YL counter ttl
             loop
 
 documents :: FilePath -> IO ()
