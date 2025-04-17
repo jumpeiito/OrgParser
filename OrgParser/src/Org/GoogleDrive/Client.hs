@@ -13,14 +13,14 @@ module Org.GoogleDrive.Client
   )
 where
 
+import           Control.Monad.Reader
 import           Data.Aeson
 import           Data.Aeson.Types
 import           Data.Aeson.KeyMap        (elems)
-import           Data.Extensible
-import           Control.Lens             hiding ((:>), noneOf)
 import           System.Environment       (getEnv)
 import qualified Data.Text                as Tx
 import qualified Data.ByteString.Lazy     as B
+import           Network.HTTP.Req
 
 type Text = Tx.Text
 
@@ -35,23 +35,12 @@ data InitialJSON = Init
 
 instance FromJSON InitialJSON where
   parseJSON (Object v) = do
-    -- let keys = ["client_id", "project_id", "auth_uri", "token_uri"
-    --            , "client_secret"]
-    -- withArray :: String -> (Array -> Parser a) -> Value -> Parser a
-    -- elems :: Data.Aeson.KeyMap.KeyMap v -> [v]
     obj <- v .: "web"
-    uri <- obj .: "redirect_uri"
-           >>= return . elems
-           >>= withArray "" parseJSON
-           :: Parser [Text]
-    -- [i, p, a, t, s] <- sequence $ map (obj .:) keys
-    -- return (Init i p a t s uri)
-    return (Init mempty mempty mempty mempty mempty mempty)
-
-  parseJSON invalid    =
-    prependFailure "parsing InitialJSON failed, "
-    (typeMismatch "Object" invalid)
-
+    uri <- obj .: "redirect_uris" >>= parseJSON
+    let keys = ["client_id", "project_id", "auth_uri"
+               , "token_uri" , "client_secret"]
+    [i, p, a, t, s] <- sequence $ map (obj .:) keys
+    return (Init i p a t s uri)
 
 driveInitial :: IO FilePath
 driveInitial = getEnv "ORG" >>= return . (++ "/driveClient.JSON")
@@ -61,6 +50,21 @@ driveInitialJSON = do
   file <- driveInitial
   bs   <- B.readFile file
   return $ decode bs
+
+driveInitialURL :: Reader InitialJSON (Url Https)
+driveInitialURL = do
+  auth <- asks authURI
+  let urlTail = Tx.stripPrefix "https://" auth
+  case Tx.split (== '/') <$> urlTail of
+    Nothing -> error "authURI may be inappropriate"
+    Just (domain:urls) ->
+      return $ foldr (flip (/:)) (https domain) urls
+
+driveKeyFile :: IO FilePath
+driveKeyFile = getEnv "HOME" >>= return . (++ "/.drivekey")
+
+driveKey :: IO B.ByteString
+driveKey = driveKeyFile >>= B.readFile
 -- import  Control.Monad.Catch
 -- import  Control.Monad.Reader
 -- import  Data.Maybe              (fromMaybe)
