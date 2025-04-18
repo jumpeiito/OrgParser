@@ -176,13 +176,15 @@ getRefreshToken = do
                , ("grant_type",    "authorization_code")
                , ("access_type",   "offline")
                ]
+      query :: Option scheme
       query  = foldMap (uncurry (=:)) params
-  runReq defaultHttpConfig $ do
-    res <- req
-           POST
-           -- googleOauthTokenServer
-           (https "www.googleapis.com" /: "oauth2" /: "v4" /: "token")
-           NoReqBody
-           jsonResponse
-           query
-    liftIO $ print (responseBody res :: Value)
+  print $ queryParamToList query
+  -- runReq defaultHttpConfig $ do
+  --   res <- req
+  --          POST
+  --          -- googleOauthTokenServer
+  --          (https "www.googleapis.com" /: "oauth2" /: "v4" /: "token")
+  --          NoReqBody
+  --          jsonResponse
+  --          query
+  --   liftIO $ print (responseBody res :: Value)
