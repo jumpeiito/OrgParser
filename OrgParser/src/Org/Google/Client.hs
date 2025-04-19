@@ -1,35 +1,38 @@
-{-# LANGUAGE OverloadedLabels, OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell, DataKinds, TypeOperators, FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-module Org.GoogleDrive.Client
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DataKinds, FlexibleContexts #-}
+module Org.Google.Client
   (
-  --   Client (..)
-  -- , Oauth (..)
-  -- , WithClient
-  -- , WithAccessToken
-  -- , clientFromFile
-  -- , aliveAccessToken
-  -- , getRefreshToken
+    Client (..)
+  , RefreshJSON (..)
+  , Config (..)
+  , AppCore
+  , App
+  , configDef
+  , configCalendar
+  , getPermissionURI
+  , getRefreshToken
+  , aliveAccessToken
   )
 where
 
-import           Control.Monad.Reader
-import           Control.Monad.Catch       (MonadThrow, catch)
+import           Control.Monad.State
+import           Control.Monad.Catch       (catch)
 import           Data.Aeson
 import           Data.Aeson.Types
-import           Data.Aeson.KeyMap         (elems)
+import           Data.Maybe                (fromMaybe)
+import           Data.Functor              ((<&>))
 import           System.Environment        (getEnv)
 import           Data.String.Conversions   (convertString)
 import qualified Data.Text                 as Tx
 import qualified Data.ByteString.Lazy      as B
 import           Network.HTTP.Req
 import qualified Network.HTTP.Types.URI    as Types
-import           Text.URI                  (URI)
+-- import           Text.URI                  (URI)
 import qualified Text.URI                  as URI
 
 type Text = Tx.Text
 
-data InitialJSON = Init
+data Client = Init
   { clientID       :: Text
   , projectID      :: Text
   , authURI        :: Text
@@ -49,17 +52,28 @@ data RefreshJSON =
      , rjTokenType   :: Text }
   deriving (Show)
 
-instance FromJSON InitialJSON where
+data Config = Cfg
+  { basename         :: String
+  , oauthTokenServer :: Url 'Https
+  , validateServer   :: Url 'Https
+  , getRefreshTokenServer
+                     :: Url 'Https
+  , scope            :: Text }
+  deriving (Show, Eq)
+
+type AppCore = (Config, Client)
+type App     = StateT AppCore IO
+
+instance FromJSON Client where
   parseJSON (Object v) = do
-    obj <- v .: "web"
-    uri <- obj .: "redirect_uris" >>= parseJSON
+    uri <- v .: "redirect_uri" >>= parseJSON
     let keys = ["client_id", "project_id", "auth_uri"
                , "token_uri" , "client_secret", "permission_code"
                , "refresh_token", "access_token"]
-    [i, p, a, t, s, pc, rt, at] <- sequence $ map (obj .:) keys
+    [i, p, a, t, s, pc, rt, at] <- mapM (v .:) keys
     return (Init i p a t s uri pc at rt)
 
-instance ToJSON InitialJSON where
+instance ToJSON Client where
   toJSON (Init cid pid aURI tURI cs rURI pCode aToken rToken) =
     object [ "client_id"       .= cid
            , "project_id"      .= pid
@@ -81,23 +95,32 @@ instance FromJSON RefreshJSON where
     prependFailure "parsing RefreshJSON failed, "
     (typeMismatch "Object" invalid)
 
-googleOauthTokenServer :: Url 'Https
-googleOauthTokenServer =
-  https "accounts.google.com" /: "o" /: "oauth2" /: "token"
+configDef :: Config -- for Google Drive
+configDef = Cfg
+  { basename = "driveClient.json"
+  , oauthTokenServer = https "accounts.google.com" /: "o" /: "oauth2" /: "token"
+  , validateServer = https "oauth2.googleapis.com" /: "tokeninfo"
+  , scope = "https://www.googleapis.com/auth/drive"
+  , getRefreshTokenServer = https "www.googleapis.com" /: "oauth2" /: "v4" /: "token"
+  }
 
-clientWriteFile :: InitialJSON -> IO ()
-clientWriteFile c = do
-  clientf <- driveInitial
-  B.writeFile clientf (encode c)
+configCalendar :: Config -- for Google Calendar
+configCalendar = configDef
+  { basename = "calendarClient.json"
+  , scope = "https://www.googleapis.com/auth/calendar" }
 
-driveInitial :: IO FilePath
-driveInitial = getEnv "ORG" >>= return . (++ "/driveClient.JSON")
+writeClient :: App ()
+writeClient = do
+  (cfg, cl) <- get
+  cFile     <- liftIO $ clientFile cfg
+  liftIO $ B.writeFile cFile (encode cl)
 
-driveInitialJSON :: IO (Maybe InitialJSON)
-driveInitialJSON = do
-  file <- driveInitial
-  bs   <- B.readFile file
-  return $ decode bs
+clientFile :: Config -> IO FilePath
+clientFile cfg = do
+  getEnv "ORG" <&> (++ "/" ++ basename cfg)
+
+client :: Config -> IO (Maybe Client)
+client cfg = (clientFile cfg >>= B.readFile) <&> decode
 
 makeQuery :: Text -> Text -> Maybe URI.QueryParam
 makeQuery k v =
@@ -110,81 +133,87 @@ makeQuery k v =
   in
     URI.QueryParam <$> URI.mkQueryKey k <*> convert v
 
-getPermissionURI :: ReaderT InitialJSON IO Text
+getPermissionURI :: App Text
 getPermissionURI = do
-  auth     <- asks authURI
-  redirect <- asks (head . redirectURI)
-  clientid <- asks clientID
+  (cfg, cl) <- get
+  let scope'   = scope cfg
+  let auth     = authURI cl
+  let redirect = head $ redirectURI cl
+  let clientid = clientID cl
 
   uri      <- liftIO $ URI.mkURI auth
-  let param = [ ("scope", "https://www.googleapis.com/auth/drive")
+  let param = [ ("scope", scope')
               , ("access_type",   "offline")
               , ("response_type", "code")
               , ("redirect_uri",  redirect)
               , ("client_id",     clientid)]
-  let query = case mapM (uncurry makeQuery) param of
-        Nothing -> mempty
-        Just q  -> q
+  let query = mempty `fromMaybe` mapM (uncurry makeQuery) param
   return $ URI.render $ uri { URI.uriQuery = query }
 
-driveKeyFile :: IO FilePath
-driveKeyFile = getEnv "HOME" >>= return . (++ "/.drivekey")
+_test :: Config -> IO ()
+_test config = do
+  cl <- client config
+  case cl of
+    Nothing -> return ()
+    Just c  -> do
+      txt <- aliveAccessToken `evalStateT` (config, c)
+      print txt
+      -- getRefreshToken `evalStateT` (config, c)
 
-driveKey :: IO B.ByteString
-driveKey = driveKeyFile >>= B.readFile
-
-
-getRefreshToken :: ReaderT InitialJSON IO ()
+getRefreshToken :: App ()
 getRefreshToken = do
-  redirect <- asks (head . redirectURI)
-  clientid <- asks clientID
-  clientsc <- asks clientSecret
-  permiss  <- asks permissionCode
+  (cfg, cl) <- get
+  let redirect = head $ redirectURI cl
+  let clientid = clientID cl
+  let clientsc = clientSecret cl
+  let permiss  = permissionCode cl
   let params :: [(Text, Text)]
       params = [ ("code",          permiss)
                , ("client_id" ,    clientid)
                , ("client_secret", clientsc)
                , ("redirect_uri",  redirect)
-               , ("grant_type",    "authorization_code")
-               ]
+               , ("grant_type",    "authorization_code")]
       query :: Option scheme
       query   = foldMap (uncurry (=:)) params
       reqHead = "Content-Type" `header` "application/x-www-form-urlencoded"
   runReq defaultHttpConfig $ do
     res <- req
            POST
-           (https "www.googleapis.com" /: "oauth2" /: "v4" /: "token")
+           (getRefreshTokenServer cfg)
            NoReqBody
            jsonResponse
            (query <> reqHead)
     liftIO $ print (responseBody res :: Value)
 
-refreshAccessToken :: ReaderT InitialJSON IO Text
+refreshAccessToken :: App Text
 refreshAccessToken = do
-  init <- ask
-  cid  <- asks clientID
-  csc  <- asks clientSecret
-  rt   <- asks refreshToken
+  (cfg, cl) <- get
+  let cid = clientID cl
+  let csc = clientSecret cl
+  let rt  = refreshToken cl
+  let otkServer = oauthTokenServer cfg
   let params =
           [ ("client_id" ,    cid)
           , ("client_secret", csc)
           , ("refresh_token", rt)
           , ("grant_type",    "refresh_token")] :: [(Text, Text)]
   let query = foldMap (uncurry (=:)) params
-  runReq defaultHttpConfig $ do
-    res <- req POST googleOauthTokenServer NoReqBody lbsResponse query
-    case decode (responseBody res) of
-      Nothing    -> return mempty
-      Just rjson -> do
-       let newAccessToken = rjaToken rjson
-       liftIO $ clientWriteFile (init { accessToken = newAccessToken })
-       return newAccessToken
+  res <- runReq defaultHttpConfig
+         $ req POST otkServer  NoReqBody lbsResponse query
+  case decode (responseBody res) of
+    Nothing -> return mempty
+    Just rj -> do
+      let newAccessToken = rjaToken rj
+      put (cfg, cl { accessToken = newAccessToken })
+      writeClient
+      return newAccessToken
 
-validateAccessToken :: ReaderT InitialJSON IO Bool
+validateAccessToken :: App Bool
 validateAccessToken = do
-  atoken <- asks accessToken
+  (cfg, cl) <- get
+  let atoken = accessToken cl
   let query = "access_token" =: atoken
-  let url = https "oauth2.googleapis.com" /: "tokeninfo" :: Url 'Https
+  let url = validateServer cfg
   runReq defaultHttpConfig $ do
     _ <- req GET url NoReqBody lbsResponse query
     return True
@@ -199,14 +228,9 @@ validateAccessToken = do
         JsonHttpException e -> do
           liftIO $ print e; return False
 
-aliveAccessToken :: ReaderT InitialJSON IO Text
+aliveAccessToken :: App Text
 aliveAccessToken = do
   valid <- validateAccessToken
   case valid of
-    True  -> asks accessToken
+    True  -> get <&> accessToken . snd
     False -> refreshAccessToken
-
-_test :: IO ()
-_test = do
-  Just init <- driveInitialJSON
-  refreshAccessToken `runReaderT` init >>= print

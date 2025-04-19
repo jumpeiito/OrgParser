@@ -1,0 +1,43 @@
+{
+    "results" :
+    [
+        {"address_components" : 
+         [{"long_name" : "3",
+           "short_name" : "3",
+           "types" : ["premise"]},
+          {"long_name" : "NishikujÅ ToyodachÅ",
+           "short_name" : "NishikujÅ ToyodachÅ",
+           "types" : ["political", "sublocality", "sublocality_level_2"]},
+          {"long_name" : "Minami Ward",
+           "short_name" : "Minami Ward",
+           "types" : ["political", "sublocality", "sublocality_level_1"]},
+          {"long_name" : "Kyoto",
+           "short_name" : "Kyoto",
+           "types" : ["locality", "political"]},
+          {"long_name" : "Kyoto",
+           "short_name" : "Kyoto",
+           "types" : ["administrative_area_level_1", "political"]},
+          {"long_name" : "Japan",
+           "short_name" : "JP",
+           "types" : ["country", "political"]},
+          {"long_name" : "601-8448",
+           "short_name" : "601-8448",
+           "types" : ["postal_code"]}],
+         "formatted_address" : "3 NishikujÅ ToyodachÅ, Minami Ward, Kyoto, 601-8448, Japan",
+         "geometry" : {
+             "bounds" : 
+             {"northeast" : {"lat" : 34.975244, "lng" : 135.7459667},
+              "southwest" : {"lat" : 34.9750748, "lng" : 135.7456858}},
+             "location" : 
+             {"lat" : 34.9751596, "lng" : 135.7458281},
+             "location_type" : "ROOFTOP",
+             "viewport" : 
+             {"northeast" : {"lat" : 34.9765083802915, "lng" : 135.7472349802915},
+              "southwest" : {"lat" : 34.9738104197085, "lng" : 135.7445370197085}}},
+         "navigation_points" : 
+            [{"location" : {"latitude" : 34.9751609, "longitude" : 135.7460093}}],
+         "place_id" : "ChIJJb1pbAcGAWAR8odj3BmzAoI",
+         "types" : ["premise", "street_address"]}
+    ],
+    "status" : "OK"
+}

@@ -3,6 +3,7 @@
 module Org.Conduit
   (
     forICS
+  , forGeocode
   , documentSource
   , normalConduit
   , documentConduit
@@ -11,6 +12,7 @@ where
 
 import           Control.Monad.State
 import           Text.Megaparsec            (parse)
+import qualified Data.Map.Strict            as Map
 import           Data.Conduit
 import           Data.Conduit.List          (sourceList, consume)
 import           Control.Lens               hiding ((:>), noneOf)
@@ -138,6 +140,20 @@ eventSink = do
   let makeEvent title = map (`toEvent` title) $ title ^. #timestamps
   return $ concatMap makeEvent titles
 
+locationSink :: ConduitT Title Void IO (Map.Map Tx.Text [Title])
+locationSink = loop Map.empty
+  where
+    loop m = do
+      stream <- await
+      case stream of
+        Nothing  -> return m
+        Just ttl -> do
+          let loc = ttl ^. #location
+          if loc == mempty
+            then loop m
+            else loop (Map.insertWith (<>) loc [ttl] m)
+
+
 -- _debugSink :: ConduitT Title Void IO ()
 -- _debugSink = do
 --   liftIO $ Encoding.setLocaleEncoding Encoding.utf8
@@ -156,7 +172,15 @@ _debugPreTitleSink = do
 forICS :: IO [CalendarEvent]
 forICS = runConduit (orgSource .| normalConduit .| eventSink)
 
--- _test :: IO ()
--- _test = runConduit (documentSource "e:/OrgFiles/2025議案書.org"
---                   .| documentConduit
---                   .| _debugSink)
+forGeocode :: IO (Map.Map Tx.Text [Title])
+forGeocode = do
+  runConduit (orgSource
+               .| normalConduit
+               .| locationSink)
+
+_test :: IO ()
+_test = do
+  r <- runConduit (orgSource
+                   .| normalConduit
+                   .| locationSink)
+  mapM_ (TxIO.putStrLn . fst) (Map.toList r)
