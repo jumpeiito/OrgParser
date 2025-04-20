@@ -3,8 +3,9 @@ module Main (main) where
 
 import Prelude
 import Org.Document
-import Org.ICS            (updateGoogleCalendar, googleCalendar
-                          , googleFamilyCalendar)
+import Org.ICS              (updateGoogleCalendar, googleCalendar
+                            , googleFamilyCalendar)
+import Org.Google.Geocoding (makeKmlFile)
 import Options.Applicative
 
 main :: IO ()

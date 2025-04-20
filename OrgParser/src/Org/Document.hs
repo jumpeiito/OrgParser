@@ -41,17 +41,15 @@ textBuild (YL counter a)
     bracket :: Int -> Tx.Text -> Tx.Text -> Tx.Text
     bracket lv titlen after =
       let
-        postTitle = TxLB.text (titlen <> after)
-        comma     = TxLB.text (", ")
-        quote     = TxLB.text ("\"")
+        postTitle = titlen <> after
+        comma     = ", "
+        quote     = "\""
         builders  =
-          [ TxLB.text "- [", TxLB.decimal lv
-          , comma, quote, postTitle
-          , TxLB.text (a ^. #label), quote, comma
-          , a ^. #paragraph , quote
-          , TxLB.text "]"]
+          ["- [", Tx.pack (show lv), comma, quote, postTitle
+          , a ^. #label, quote, comma
+          , a ^. #paragraph, quote, "]"]
       in
-        TxLB.run $ foldMap (<>) builders mempty
+        foldMap (<>) builders mempty
 
 addCounter :: Int -> ConduitMapState Int
 addCounter level' = do

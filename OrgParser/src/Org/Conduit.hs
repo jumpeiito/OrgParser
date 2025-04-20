@@ -85,7 +85,7 @@ titleConduit = do
             (Just c, Right LB) ->
               loop $ Just (c & #paragraph %~ (<> "\\r\\n\n"))
             (Just c, Right (LP ("LOCATION", l))) -> do
-              loop $ Just (c & #location .~ l)
+              loop $ Just (c & #location .~ (l, mempty))
             (Just c, Right (LP ("PROPERTIES", _))) -> do
               loop $ Just c
             (Just c, Right (LP ("END", _))) -> do
@@ -166,12 +166,11 @@ locationSink = loop Map.empty
       case stream of
         Nothing  -> return m
         Just ttl -> do
-          let loc = ttl ^. #location
-          if loc == mempty
-            then loop m
-            else loop (Map.insertWith (<>) loc [ttl] m)
-
-
+          let (loc, ges) = ttl ^. #location
+          let ges' = map searchQuery ges :: [Tx.Text]
+          let keys = if Tx.null loc then ges' else loc:ges'
+          let map' = foldr (\k m' -> Map.insertWith (<>) k [ttl] m') m keys
+          loop map'
 -- _debugSink :: ConduitT Title Void IO ()
 -- _debugSink = do
 --   liftIO $ Encoding.setLocaleEncoding Encoding.utf8

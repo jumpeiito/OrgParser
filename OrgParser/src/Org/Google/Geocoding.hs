@@ -61,7 +61,7 @@ instance FromJSON Geocode where
       <*> (geo objects)
       <*> (objects .:? "place_id")
   parseJSON invalid    =
-    prependFailure "parsing Calendar failed, "
+    prependFailure "parsing Geocode failed, "
     (typeMismatch "Object" invalid)
 
 config :: Config

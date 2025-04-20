@@ -13,23 +13,25 @@ module Org.ICS
   )
 where
 
-import  Data.List               (sort, elemIndex)
-import  Data.Text               (Text)
-import  Data.Function           (on)
-import  Data.Time
-import  Data.Aeson
-import  Data.Aeson.Types
-import  Data.Maybe              (fromJust, isJust)
-import  Data.String.Conversions (convertString)
-import  Control.Monad           (forM_)
-import  Control.Monad.Reader    (runReaderT, liftIO, asks)
-import  Network.HTTP.Req
-import  Org.Conduit             (forICS)
-import  Org.GoogleCalendar.Client
-import  Org.GoogleCalendar.Event
-import  qualified Org.GoogleCalendar.Color as GCC
-import  qualified GHC.IO.Encoding as Encoding
-import  qualified Data.Text.IO as TxIO
+import           Data.List                   (sort, elemIndex)
+import           Data.Text                   (Text)
+import           Data.Function               (on)
+import           Data.Time
+import           Data.Aeson
+import           Data.Aeson.Types
+import           Data.Maybe                  (fromJust, isJust)
+import           Data.String.Conversions     (convertString)
+import           Control.Monad               (forM_)
+-- impo          t  Control.Monad.Reader    (runReaderT, liftIO, asks)
+import           Control.Monad.State
+import           Network.HTTP.Req
+import           Org.Conduit                 (forICS)
+-- import  Org.GoogleCalendar.Client
+import           Org.Google.Client           (App, Client (..), appCoreCalendar)
+import           Org.GoogleCalendar.Event
+import qualified Org.GoogleCalendar.Color    as GCC
+import qualified GHC.IO.Encoding             as Encoding
+import qualified Data.Text.IO                as TxIO
 
 data CalendarEventEqual = CeeAlmost CalendarEvent
                         | CeeEdible CalendarEvent CalendarEvent
@@ -37,7 +39,7 @@ data CalendarEventEqual = CeeAlmost CalendarEvent
                         deriving (Eq)
 
 data CalendarResponse =
-  CalendarResponse [CalendarEvent] (Maybe String)
+  CalendarResponse [CalendarEvent] (Maybe Text)
   deriving (Show)
 
 data Calendar = Calendar { calendarID  :: Text
@@ -90,17 +92,17 @@ isCeeNot :: CalendarEventEqual -> Bool
 isCeeNot (CeeNot _) = True
 isCeeNot _ = False
 
-headerAuthorization :: String -> Option scheme
+headerAuthorization :: Text -> Option scheme
 headerAuthorization atoken =
   header "Authorization" ("Bearer " <> convertString atoken)
 
-accessTokenPair :: IO (String, Client)
-accessTokenPair = do
-  c <- clientFromFile
-  a <- aliveAccessToken `runReaderT` c
-  return (a, c)
+-- accessTokenPair :: IO (String, Client)
+-- accessTokenPair = do
+--   c <- clientFromFile
+--   a <- aliveAccessToken `runReaderT` c
+--   return (a, c)
 
-getGoogleCalendarList :: Calendar -> WithAccessToken [CalendarEvent]
+getGoogleCalendarList :: Calendar -> App [CalendarEvent]
 getGoogleCalendarList cal = sort <$> loop Nothing []
   where
     loop pageToken ret = do
@@ -109,18 +111,15 @@ getGoogleCalendarList cal = sort <$> loop Nothing []
         Just _  -> loop np (ret ++ events)
         Nothing -> return (ret ++ events)
 
-getGoogleCalendarPage ::
-  Maybe String ->
-  Calendar ->
-  WithAccessToken CalendarResponse
+getGoogleCalendarPage :: Maybe Text -> Calendar -> App CalendarResponse
 getGoogleCalendarPage nextToken cal = do
-  aToken <- asks fst
+  aToken <- accessToken . snd <$> get
   runReq defaultHttpConfig $ do
     res <- req GET (url cal) NoReqBody jsonResponse
                (headerAuthorization aToken <> query)
     return $ responseBody res
       where
-        options :: [(Text, String)]
+        options :: [(Text, Text)]
         query   :: Option scheme
         pToken Nothing  = []
         pToken (Just k) = [ ("pageToken", k)]
@@ -161,8 +160,9 @@ diffVerseCalendarEvent orgEV = filter judge
 updateGoogleCalendar :: Calendar -> IO ()
 updateGoogleCalendar cal = do
   Encoding.setLocaleEncoding Encoding.utf8
-  apair <- accessTokenPair
-  (`runReaderT` apair) $ do
+  -- apair <- accessTokenPair
+  appCore <- appCoreCalendar
+  (`evalStateT` appCore) $ do
     gcalList <- getGoogleCalendarList cal
     allev    <- liftIO forICS
     let events    = filter (filterEvent cal) allev
@@ -177,17 +177,17 @@ updateGoogleCalendar cal = do
     newEventsInsert cal diffs
     verseColored cal diffVerse
 
-edibleEventsReplace :: Calendar -> [CalendarEventEqual] -> WithAccessToken ()
+edibleEventsReplace :: Calendar -> [CalendarEventEqual] -> App ()
 edibleEventsReplace cal events =
   forM_ (filter isEdible events) $ replaceEvent cal
 
-newEventsInsert :: Calendar -> [CalendarEventEqual] -> WithAccessToken ()
+newEventsInsert :: Calendar -> [CalendarEventEqual] -> App ()
 newEventsInsert cal events =
   forM_ (filter isCeeNot events) $ \case
      CeeNot s -> insertEvent cal s
      _        -> return ()
 
-verseColored :: Calendar -> [CalendarEvent] -> WithAccessToken ()
+verseColored :: Calendar -> [CalendarEvent] -> App ()
 verseColored cal = mapM_ eventColored
   where
     newEV ev = ev { eventColorID = Just "11" } -- Tomato
@@ -195,18 +195,18 @@ verseColored cal = mapM_ eventColored
       | isJust (eventBirthDay ev) = return ()
       | otherwise = replaceEvent cal (CeeEdible (newEV ev) ev)
 
-insertEvent :: Calendar -> CalendarEvent -> WithAccessToken ()
+insertEvent :: Calendar -> CalendarEvent -> App ()
 insertEvent cal ev = do
-  aToken <- asks fst
+  aToken <- accessToken . snd <$> get
   runReq defaultHttpConfig $ do
     res  <- req POST (url cal) (ReqBodyJson ev) jsonResponse
               (headerAuthorization aToken)
     liftIO $ print (responseBody res :: CalendarEvent)
     liftIO $ TxIO.putStrLn $ eventSummary ev <> " registered!"
 
-replaceEvent :: Calendar -> CalendarEventEqual -> WithAccessToken ()
+replaceEvent :: Calendar -> CalendarEventEqual -> App ()
 replaceEvent cal (CeeEdible org gcal) = do
-  aToken <- asks fst
+  aToken <- accessToken . snd <$> get
   let evid = convertString $ eventID gcal
   let url' = url cal /: evid
   runReq defaultHttpConfig $ do
@@ -219,8 +219,9 @@ replaceEvent _ _ = return ()
 searchCalendar :: Calendar -> IO ()
 searchCalendar cal = do
   Encoding.setLocaleEncoding Encoding.utf8
-  apair <- accessTokenPair
-  (`runReaderT` apair) $ do
+  -- apair <- accessTokenPair
+  appCore <- appCoreCalendar
+  (`evalStateT` appCore) $ do
     gcalList <- getGoogleCalendarList cal
    -- events   <- liftIO forICS
     -- let diffs    = diffCalendarEvent events gcalList
@@ -232,7 +233,8 @@ searchCalendar cal = do
 
 getColors :: IO ()
 getColors = do
-  (aToken, _) <- accessTokenPair
+  appCore <- appCoreCalendar
+  let aToken = accessToken $ snd appCore
   let url' = https "www.googleapis.com"
              /: "calendar"
              /: "v3"
@@ -260,7 +262,7 @@ _makeCeeMatcher (CeeEdible c1 c2) =
      (judge eventLocation)
 _makeCeeMatcher _ = error ""
 
-_testInsert :: IO ()
-_testInsert = do
-  apair <- accessTokenPair
-  insertEvent googleFamilyCalendar testEvent `runReaderT` apair
+-- _testInsert :: IO ()
+-- _testInsert = do
+--   apair <- accessTokenPair
+--   insertEvent googleFamilyCalendar testEvent `runStateT` apair

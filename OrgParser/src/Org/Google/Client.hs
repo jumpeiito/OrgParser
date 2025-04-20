@@ -12,14 +12,16 @@ module Org.Google.Client
   , getPermissionURI
   , getRefreshToken
   , aliveAccessToken
+  , appCoreCalendar
   )
 where
 
+import           Control.Monad             (guard)
 import           Control.Monad.State
 import           Control.Monad.Catch       (catch)
 import           Data.Aeson
 import           Data.Aeson.Types
-import           Data.Maybe                (fromMaybe)
+import           Data.Maybe                (fromMaybe, isJust, fromJust)
 import           Data.Functor              ((<&>))
 import           System.Environment        (getEnv)
 import           Data.String.Conversions   (convertString)
@@ -72,6 +74,9 @@ instance FromJSON Client where
                , "refresh_token", "access_token"]
     [i, p, a, t, s, pc, rt, at] <- mapM (v .:) keys
     return (Init i p a t s uri pc at rt)
+  parseJSON invalid    =
+    prependFailure "parsing Geocode failed, "
+    (typeMismatch "Object" invalid)
 
 instance ToJSON Client where
   toJSON (Init cid pid aURI tURI cs rURI pCode aToken rToken) =
@@ -122,6 +127,15 @@ clientFile cfg = do
 client :: Config -> IO (Maybe Client)
 client cfg = (clientFile cfg >>= B.readFile) <&> decode
 
+appCore :: Config -> IO (Config, Client)
+appCore cfg = do
+  c <- client cfg
+  guard $ isJust c
+  return (cfg, fromJust c)
+
+appCoreCalendar :: IO (Config, Client)
+appCoreCalendar = appCore configCalendar
+
 makeQuery :: Text -> Text -> Maybe URI.QueryParam
 makeQuery k v =
   let
@@ -136,19 +150,20 @@ makeQuery k v =
 getPermissionURI :: App Text
 getPermissionURI = do
   (cfg, cl) <- get
-  let scope'   = scope cfg
-  let auth     = authURI cl
-  let redirect = head $ redirectURI cl
-  let clientid = clientID cl
-
-  uri      <- liftIO $ URI.mkURI auth
-  let param = [ ("scope", scope')
-              , ("access_type",   "offline")
-              , ("response_type", "code")
-              , ("redirect_uri",  redirect)
-              , ("client_id",     clientid)]
-  let query = mempty `fromMaybe` mapM (uncurry makeQuery) param
-  return $ URI.render $ uri { URI.uriQuery = query }
+  case redirectURI cl of
+    []         -> error "redirectURI error"
+    redirect:_ -> do
+      let scope'     = scope cfg
+      let auth       = authURI cl
+      let clientid   = clientID cl
+      uri      <- liftIO $ URI.mkURI auth
+      let param = [ ("scope", scope')
+                  , ("access_type",   "offline")
+                  , ("response_type", "code")
+                  , ("redirect_uri",  redirect)
+                  , ("client_id",     clientid)]
+      let query = mempty `fromMaybe` mapM (uncurry makeQuery) param
+      return $ URI.render $ uri { URI.uriQuery = query }
 
 _test :: Config -> IO ()
 _test config = do
@@ -163,7 +178,7 @@ _test config = do
 getRefreshToken :: App ()
 getRefreshToken = do
   (cfg, cl) <- get
-  let redirect = head $ redirectURI cl
+  let redirect = redirectURI cl !! 0
   let clientid = clientID cl
   let clientsc = clientSecret cl
   let permiss  = permissionCode cl

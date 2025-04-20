@@ -30,6 +30,7 @@ module Org.ParseText
   , lineParse
   , defTitle
   , mplusOther
+  , searchQuery
   , TimestampType (..)
   , Timestamp
   , Title
@@ -37,6 +38,8 @@ module Org.ParseText
   , LevelEQTitle (..)
   , Other
   , Geocode (..)
+  , GeocodeSearch (..)
+  , EqBuilder (..)
   )
 where
 
@@ -63,7 +66,7 @@ data Line = LL Title
           | LP (Text, Text)
           | LB
           | LO Other
-          deriving (Show)
+          deriving (Show, Eq)
 
 type Title = Record
   [ "label"      :> Text
@@ -71,10 +74,10 @@ type Title = Record
   , "todo"       :> Maybe Text
   , "tags"       :> [Text]
   , "timestamps" :> [Timestamp]
-  , "paragraph"  :> TxLB.Builder
+  , "paragraph"  :> Text
   , "properties" :> [(Text, Text)]
-  , "location"   :> Text
-  , "path"       :> TxLB.Builder ]
+  , "location"   :> (Text, [GeocodeSearch])
+  , "path"       :> Text ]
 
 type Timestamp = Record
   [ "begin"    :> UTCTime
@@ -84,14 +87,17 @@ type Timestamp = Record
 
 type Other = Record
   [ "timestamps" :> [Timestamp]
-  , "others"     :> TxLB.Builder ]
+  , "others"     :> Text
+  , "geocode"    :> [GeocodeSearch]]
 
 type Text      = Tx.Text
 type Parser    = Parsec Void Text
 type Time      = (Tagged "Hour" Int, Tagged "Minute" Int)
 data LineBreak = LineBreak
+data GeocodeSearch = GeS Text (Maybe Text) deriving (Eq, Show)
 newtype Link   = Link (Text, Maybe Text) deriving Show
 newtype LevelEQTitle = LEQ Title
+newtype EqBuilder = EB TxLB.Builder deriving Show
 
 newtype Geocode = Geo Title
 newtype GeocodeUTC = GU UTCTime
@@ -133,17 +139,19 @@ defTitle = #label         @= mempty
 defOther :: Other
 defOther = #timestamps @= mempty
            <: #others  @= mempty
+           <: #geocode @= mempty
            <: nil
 
 mplusOther :: Other -> Title -> Title
 mplusOther o t =
   let
-    -- othersRefine  = Tx.stripEnd . Tx.concat . (^. #others)
     othersRefine = (^. #others)
     x1 = t  & #timestamps %~ (<> o ^. #timestamps)
     x2 = x1 & #paragraph  %~ (<> othersRefine o)
+    (loc, geo) = x2 ^. #location
+    x3 = x2 & #location .~ (loc, geo <> (o ^. #geocode))
   in
-    x2
+    x3
 
 changeSlots :: ASetter a1 b1 a2 b2 -> b2 -> a1 -> b1
 changeSlots sym value tsmp = tsmp & sym .~ value
@@ -302,6 +310,16 @@ linkP = between (chunk "[[") (chunk "]]") linkCore
       return $ Tx.concat ["<a href=\"", url, "\">"
                          , url `fromMaybe` expr, "</a>"]
 
+geocodeP :: Parser GeocodeSearch
+geocodeP = between (chunk "{{") (chunk "}}") geocodeCore
+  where
+    geocodeToken :: Parser Text
+    geocodeToken = Tx.pack <$> some (noneOf ['}'])
+    geocodeCore  = do
+      geoTarget <- geocodeToken
+      expr      <- Nothing `option` (chunk "}{" >> Just <$> geocodeToken)
+      return $ GeS geoTarget expr
+
 linebreakP :: Parser LineBreak
 linebreakP = chunk "# linebreak" >> return LineBreak
 
@@ -313,24 +331,30 @@ otherRefineP = def `option` (loop def <|> literalOnly def)
   where
     def = defOther
     spaces = many (single ' ')
-    toBuilder = TxLB.text . Tx.pack
     loop :: Other -> Parser Other
-    loop o = eof' o <|> timestamp' o <|> link' o <|> withOther o
+    loop o = anyP [ eof' o
+                  , timestamp' o
+                  , link' o
+                  , geocode' o
+                  , withOther o]
     eof' o = eof >> return o
     timestamp' oth = do
       ts <- try (timestampP <* spaces)
       loop (oth & #timestamps %~ (<> [ts]))
     link' oth = do
       lk <- try (linkP <* spaces)
-      loop (oth & #others %~ (<> TxLB.text lk))
+      loop (oth & #others %~ (<> lk))
+    geocode' oth = do
+      g  <- try (geocodeP <* spaces)
+      loop (oth & #geocode %~ (<> [g]))
     withOther oth = do
-      let end'  = lookAhead (timestamp' oth <|> link' oth)
+      let end'  = lookAhead (timestamp' oth <|> link' oth <|> geocode' oth)
       let withP = manyTill anySingle end'
       other <- try withP <|> some anySingle
-      loop (oth & #others %~ (<> toBuilder other))
+      loop (oth & #others %~ (<> Tx.pack other))
     literalOnly oth = do
       lo <- manyTill anySingle eof
-      loop (oth & #others %~ (<> toBuilder lo))
+      loop (oth & #others %~ (<> Tx.pack lo))
 {-# INLINE otherRefineP #-}
 
 lineParse :: Parser Line
@@ -373,3 +397,7 @@ anyP [] = undefined
 
 instance Eq LevelEQTitle where
   (LEQ t1) == (LEQ t2) = t1 ^. #level == t2 ^. #level
+
+searchQuery :: GeocodeSearch -> Text
+searchQuery (GeS _ (Just y)) = y
+searchQuery (GeS x _) = x

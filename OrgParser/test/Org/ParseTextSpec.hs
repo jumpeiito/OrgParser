@@ -2,23 +2,24 @@
 {-# LANGUAGE DataKinds #-}
 module Org.ParseTextSpec (main, spec) where
 
-import Test.Hspec
--- import Test.QuickCheck
-import Org.ParseText
-import Data.Time
-import Data.Either (isLeft, rights)
-import GHC.Base (Alternative)
-import Data.Time
-import Data.Void
-import Data.Coerce
-import Data.Tagged
-import qualified Data.Text as Tx
-import qualified Data.List as Dl
-import Text.Megaparsec
-import Text.Megaparsec.Char
-import Control.Monad
-import Data.Extensible
-import Control.Lens hiding ((:>), oneOf, noneOf)
+import           Test.Hspec
+-- import           Test.QuickCheck
+import           Org.ParseText
+import           Data.Time
+import           Data.Either           (isLeft, rights)
+import           GHC.Base              (Alternative)
+import           Data.Time
+import           Data.Void
+import           Data.Coerce
+import           Data.Tagged
+import qualified Data.Text             as Tx
+import qualified Text.Builder          as TxLB
+import qualified Data.List             as Dl
+import           Text.Megaparsec
+import           Text.Megaparsec.Char
+import           Control.Monad
+import           Data.Extensible
+import           Control.Lens          hiding ((:>), oneOf, noneOf)
 
 type Parser    = Parsec Void Tx.Text
 
@@ -499,6 +500,7 @@ spec = do
                                  <: #end @= Nothing
                                  <: nil]
                 <: #others @= mempty
+                <: #geocode @= mempty
                 <: nil)
     it "(3)" $ do
       parse f "" "hoge <2025-04-10 月 10:00>"
@@ -508,7 +510,8 @@ spec = do
                                  <: #active @= True
                                  <: #end @= Nothing
                                  <: nil ]
-                <: #others @= ["hoge "]
+                <: #others @= "hoge "
+                <: #geocode @= mempty
                 <: nil)
     it "(4)" $ do
       parse f "" "hoge <2025-04-10 月> foo"
@@ -518,7 +521,9 @@ spec = do
                                  <: #active @= True
                                  <: #end @= Nothing
                                  <: nil ]
-                <: #others @= ["hoge ", "foo"]
+                -- <: #others @= ["hoge ", "foo"]
+                <: #others @= "hoge foo"
+                <: #geocode @= mempty
                 <: nil)
     it "(5)" $ do
       parse f "" "hoge <2025-04-10 月> foo [[http://google.co.jp][Google]] buz! SCHEDULED: <2025-04-11 火 12:00-17:00>"
@@ -533,7 +538,49 @@ spec = do
                                  <: #active @= True
                                  <: #end @= Just (makeUTC 2025 4 11 17 0)
                                  <: nil]
-                <: #others @= ["hoge ", "foo ", "<a href=\"http://google.co.jp\">Google</a>", "buz! "]
+                <: #others @= foldMap id
+                                      [ "hoge "
+                                      , "foo "
+                                      , "<a href=\"http://google.co.jp\">Google</a>", "buz! "]
+                <: #geocode @= mempty
+                <: nil)
+    it "(6)" $ do
+      parse f "" "hoge <2025-04-10 月> foo [[http://google.co.jp][Google]] buz! SCHEDULED: <2025-04-11 火 12:00-17:00> {{かみあり製麺}{島根県出雲市斐川町学頭1815-1}}"
+        `shouldBe`
+        Right ( #timestamps @= [ #begin @= makeUTC 2025 4 10 0 0
+                                 <: #datetype @= Normal
+                                 <: #active @= True
+                                 <: #end @= Nothing
+                                 <: nil
+                               , #begin @= makeUTC 2025 4 11 12 0
+                                 <: #datetype @= Scheduled
+                                 <: #active @= True
+                                 <: #end @= Just (makeUTC 2025 4 11 17 0)
+                                 <: nil]
+                <: #others @= foldMap id
+                                      [ "hoge "
+                                      , "foo "
+                                      , "<a href=\"http://google.co.jp\">Google</a>", "buz! "]
+                <: #geocode @= [("かみあり製麺", Just "島根県出雲市斐川町学頭1815-1")]
+                <: nil)
+    it "(7)" $ do
+      parse f "" "hoge <2025-04-10 月> foo {{かみあり製麺}{島根県出雲市斐川町学頭1815-1}} [[http://google.co.jp][Google]] buz! SCHEDULED: <2025-04-11 火 12:00-17:00>"
+        `shouldBe`
+        Right ( #timestamps @= [ #begin @= makeUTC 2025 4 10 0 0
+                                 <: #datetype @= Normal
+                                 <: #active @= True
+                                 <: #end @= Nothing
+                                 <: nil
+                               , #begin @= makeUTC 2025 4 11 12 0
+                                 <: #datetype @= Scheduled
+                                 <: #active @= True
+                                 <: #end @= Just (makeUTC 2025 4 11 17 0)
+                                 <: nil]
+                <: #others @= foldMap id
+                                      [ "hoge "
+                                      , "foo "
+                                      , "<a href=\"http://google.co.jp\">Google</a>", "buz! "]
+                <: #geocode @= [("かみあり製麺", Just "島根県出雲市斐川町学頭1815-1")]
                 <: nil)
   describe "lineParse" $ do
     it "(1)" $ do
@@ -574,13 +621,15 @@ spec = do
                                  <: #end @= (Just $ makeUTC 2025 5 3 11 40)
                                  <: nil]
                    <: #others @= mempty
+                   <: #geocode @= mempty
                    <: nil))
 
       parse lineParse "" "[[https://www.google.com/maps/dir][自宅～石見銀山]]"
         `shouldBe`
         Right (LO (#timestamps @= mempty
-                   <: #others @= [Tx.pack "<a href=\"https://www.google.com/maps/dir\">自宅～石見銀山</a>"]
-                  <: nil))
+                   <: #others @= "<a href=\"https://www.google.com/maps/dir\">自宅～石見銀山</a>"
+                   <: #geocode @= mempty
+                   <: nil))
   -- it "(2)" $ do
     --   parse otherP "" "CLOSED: [2025-03-24 月 11:58] SCHEDULED: <2025-03-24 月>"
     --     `shouldBe`
@@ -612,24 +661,26 @@ spec = do
                   <: #active   @= True
                   <: #end      @= Nothing
                   <: nil]
-                <: #others @= ["  "]
+                <: #others @= "  "
+                <: #geocode @= mempty
                 <: nil )
     it "(2)" $ do
       parse f "" "Haskell Compiler" `shouldBe`
         Right ( #timestamps @= []
-              <: #others @= ["Haskell Compiler"]
+              <: #others @= "Haskell Compiler"
+              <: #geocode @= mempty
               <: nil )
     it "(3)" $ do
       parse f "" "[[http://www.google.co.jp][Google]]" `shouldBe`
         Right ( #timestamps @= []
-              <: #others @=
-                ["<a href=\"http://www.google.co.jp\">Google</a>"]
+              <: #others @= "<a href=\"http://www.google.co.jp\">Google</a>"
+              <: #geocode @= mempty
               <: nil )
     it "(4)" $ do
       parse f "" "[[http://www.google.co.jp]]" `shouldBe`
         Right ( #timestamps @= []
-              <: #others @=
-                ["<a href=\"http://www.google.co.jp\">http://www.google.co.jp</a>"]
+              <: #others @= "<a href=\"http://www.google.co.jp\">http://www.google.co.jp</a>"
+              <: #geocode @= mempty
               <: nil )
     it "(5)" $ do
       parse f "" "<2025-04-01 土 10:00>" `shouldBe`
@@ -639,14 +690,17 @@ spec = do
                   <: #active @= True
                   <: #end @= Nothing
                   <: nil]
-              <: #others @= []
+              <: #others @= mempty
+              <: #geocode @= mempty
               <: nil )
     it "(6)" $ do
       parse f "" "Google [[http://www.google.co.jp][Google]] link"
         `shouldBe`
         Right ( #timestamps @= []
-              <: #others @= ["Google "
-                            , "<a href=\"http://www.google.co.jp\">Google</a>"
-                            , "link"]
+              <: #others @= foldMap id
+                                    ["Google "
+                                    , "<a href=\"http://www.google.co.jp\">Google</a>"
+                                    , "link"]
+              <: #geocode @= mempty
               <: nil )
 
