@@ -50,13 +50,12 @@ descriptionElement p =
 toElement :: PlaceMark -> Tagged "PlaceMark" Element
 toElement p =
   let
-    toNode = NodeElement . unTagged
     elements ::
       Tagged "Point" Element ->
       Tagged "Name" Element ->
       Tagged "Description" Element -> [Node]
-    elements p n d =
-      let (p', n', d') = (unTagged p, unTagged n, unTagged d) in
+    elements pe ne de =
+      let (p', n', d') = (unTagged pe, unTagged ne, unTagged de) in
         map NodeElement [p', n', d']
   in
     (Proxy `tagWith`)
@@ -71,13 +70,8 @@ kml es = Element "kml" attr [document]
   where
     makeNode n c = NodeElement $ Element n mempty c
     attr = Map.insert "xmlns" "http://www.opengis.net/kml/2.2" mempty
-    document = "Document" `makeNode` [name, folder]
-    name     = "name" `makeNode` [NodeContent "test"]
-    folder   = "Folder" `makeNode` (fname : elements)
-    fname    = "name" `makeNode` [NodeContent "layer1"]
+    document = "Document" `makeNode` [name', folder]
+    name'    = "name"     `makeNode` [NodeContent "test"]
+    folder   = "Folder"   `makeNode` (fname : elements)
+    fname    = "name"     `makeNode` [NodeContent "layer1"]
     elements = map (NodeElement . unTagged . toElement) es
-    -- document = NodeElement $ Element "Document" mempty [name, folder]
-    -- name     = Element "name" mempty [NodeContent "test"]
-    -- folder   = Element "Folder" mempty (foldername : elements)
-    -- foldername = Element "name" mempty [NodeContent "layer1"]
-    -- elements = map (NodeElement . unTagged . toElement) es

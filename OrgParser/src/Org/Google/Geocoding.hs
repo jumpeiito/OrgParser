@@ -20,13 +20,10 @@ import qualified Data.Aeson.KeyMap         as KeyMap
 import           Data.String.Conversions   (convertString)
 import qualified Data.Text                 as Tx
 import qualified Data.Text.IO              as TxIO
-import qualified Data.Tagged               as Tag
 import qualified Data.Map.Strict           as Map
 import           Data.Maybe                (catMaybes)
-import           Data.Functor              ((<&>))
 import           System.Environment        (getEnv)
 import           Text.XML
-import qualified Data.ByteString.Lazy      as B
 
 import qualified Org.ParseText             as P
 import           Org.Conduit               (forGeocode)
@@ -52,17 +49,20 @@ instance FromJSON Geocode where
     objects   <- result & withArray ""
                  (\a -> do
                      objList <- traverse (withObject ".." pure) $ toList a
-                     return $ foldr (KeyMap.union) mempty objList)
+                     return $ foldr KeyMap.union mempty objList)
     let geo obj = do
           bool <- obj .:? "geometry"
           case bool of
             Nothing  -> return (0.0, 0.0)
             Just g   -> do
               loc <- g .: "location"
-              ((,) <$> (loc .: "lat") <*> (loc .: "lng"))
+              (,) <$> (loc .: "lat") <*> (loc .: "lng")
     G <$> (objects .:? "formatted_address")
       <*> (geo objects)
       <*> (objects .:? "place_id")
+  parseJSON invalid    =
+    prependFailure "parsing Calendar failed, "
+    (typeMismatch "Object" invalid)
 
 config :: Config
 config = Cfg
@@ -101,11 +101,11 @@ makeKmlFile :: IO ()
 makeKmlFile = do
   let f t = (t ^. #label == "島根旅行") && (t ^. #level == 3)
   addresses <- Map.toList <$> forGeocode f
-  ps <- (`runReaderT` config) $ do
+  ps <- (`runReaderT` config) $
     forM addresses $ \(location, titles) -> do
       g <- geocode location
       let desc = Tx.intercalate " " $ map (Tx.pack . show . P.Geo) titles
-      if ((geometry g) == (0.0, 0.0)) || (length titles /= 1)
+      if (geometry g == (0.0, 0.0)) || (length titles /= 1)
         then return Nothing
         else return $ Just $ P desc location (geometry g)
   geocodeWriteFile $ toDocument (catMaybes ps)
