@@ -1,26 +1,36 @@
 {-# LANGUAGE DataKinds, FlexibleContexts #-}
+{-# LANGUAGE OverloadedLabels #-}
 module Org.Google.Geocoding
   (
     Geocode (..)
+  , makeKmlFile
   , geocode
   )
 where
 
+import           Control.Monad
 import           Control.Monad.Reader
+import           Control.Lens              ((^.))
 import           Network.HTTP.Req
 import           Data.Foldable             (toList)
 import           Data.Function             ((&))
 import           Data.Aeson
 import           Data.Aeson.Types
 import qualified Data.Aeson.KeyMap         as KeyMap
+import           Data.String.Conversions   (convertString)
 import qualified Data.Text                 as Tx
 import qualified Data.Text.IO              as TxIO
+import qualified Data.Tagged               as Tag
 import qualified Data.Map.Strict           as Map
+import           Data.Maybe                (catMaybes)
 import           Data.Functor              ((<&>))
 import           System.Environment        (getEnv)
+import           Text.XML
 import qualified Data.ByteString.Lazy      as B
 
+import qualified Org.ParseText             as P
 import           Org.Conduit               (forGeocode)
+import           Org.Google.Kml            (toDocument, PlaceMark (..))
 
 
 data Config = Cfg
@@ -58,7 +68,7 @@ config :: Config
 config = Cfg
   { apiKeyFile = ".geocoder.apikey"
   , requestURL = https "maps.googleapis.com"
-                 /: "maps" /: "api" /: "geocode" /: "json"}
+                 /: "maps" /: "api" /: "geocode" /: "json" }
 
 apiKey :: App Text
 apiKey = do
@@ -67,7 +77,7 @@ apiKey = do
   let filename = directory ++ "/" ++ basename
   liftIO $ TxIO.readFile filename
 
-geocode :: Text -> App ()
+geocode :: Text -> App Geocode
 geocode address = do
   url <- asks requestURL
   key <- apiKey
@@ -79,17 +89,23 @@ geocode address = do
            NoReqBody
            jsonResponse
            query
-    liftIO $ print (responseBody res :: Geocode)
+    return $ responseBody res
 
-_test :: IO ()
-_test = do
-  addresses <- Map.keys <$> forGeocode
-  (`runReaderT` config) $ do
-    -- geocode "京都市"
-    mapM_ (\a -> do { liftIO $ TxIO.putStrLn a; geocode a }) addresses
+geocodeWriteFile :: Document -> IO ()
+geocodeWriteFile docs = do
+  orgDir <- getEnv "ORG"
+  let file = orgDir ++ "/" ++ "map.kml"
+  TxIO.writeFile file $ convertString $ renderText def docs
 
-_test2 :: IO ()
-_test2 = do
-  g <- decode <$> B.readFile "c:/users/jumpei/Documents/home/Haskell/OrgParser/OrgParser/src/Org/Google/test.json" :: IO (Maybe Geocode)
-  print g
-
+makeKmlFile :: IO ()
+makeKmlFile = do
+  let f t = (t ^. #label == "島根旅行") && (t ^. #level == 3)
+  addresses <- Map.toList <$> forGeocode f
+  ps <- (`runReaderT` config) $ do
+    forM addresses $ \(location, titles) -> do
+      g <- geocode location
+      let desc = Tx.intercalate " " $ map (Tx.pack . show . P.Geo) titles
+      if ((geometry g) == (0.0, 0.0)) || (length titles /= 1)
+        then return Nothing
+        else return $ Just $ P desc location (geometry g)
+  geocodeWriteFile $ toDocument (catMaybes ps)

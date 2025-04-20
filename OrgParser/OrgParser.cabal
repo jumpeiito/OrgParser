@@ -54,6 +54,7 @@ library
                      , modern-uri
                      , http-types
                      , unordered-containers
+                     , xml-conduit
   default-language:    Haskell2010
   ghc-options:         -Wall
                        -Wcompat

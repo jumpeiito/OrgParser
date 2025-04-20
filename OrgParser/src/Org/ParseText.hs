@@ -36,12 +36,14 @@ module Org.ParseText
   , Line (..)
   , LevelEQTitle (..)
   , Other
+  , Geocode (..)
   )
 where
 
 import           GHC.Base           (Alternative)
 import           Data.Time
 import           Data.Maybe         (isJust, maybeToList, fromMaybe)
+import           Data.List          (intercalate)
 import           Data.Void
 import           Data.Coerce
 import           Data.Tagged
@@ -90,6 +92,27 @@ type Time      = (Tagged "Hour" Int, Tagged "Minute" Int)
 data LineBreak = LineBreak
 newtype Link   = Link (Text, Maybe Text) deriving Show
 newtype LevelEQTitle = LEQ Title
+
+newtype Geocode = Geo Title
+newtype GeocodeUTC = GU UTCTime
+
+instance Show Geocode where
+  show (Geo t) =
+    let
+      normalActive stamp =
+        (stamp ^. #datetype == Normal) && (stamp ^. #active == True)
+      ts = filter normalActive (t ^. #timestamps)
+    in
+      (Tx.unpack (t ^. #label)) ++ "(" ++
+      intercalate "・" (map (show . GU . (^. #begin)) ts) ++ ")"
+
+instance Show GeocodeUTC where
+  show (GU d) =
+    let
+      (y', m', d') = toGregorian $ utctDay d
+      y2  = y' `mod` 100
+    in
+      show y2 ++ "/" ++ show m' ++ "/" ++ show d'
 
 -- mkField "label level todo tags timestamps paragraph properties location path"
 -- mkField "begin datetype active end"

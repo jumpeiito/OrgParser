@@ -24,7 +24,7 @@ import qualified Data.Text.IO               as TxIO
 import qualified GHC.IO.Encoding            as Encoding
 import           Org.ParseText
 import           Org.Node                   (Node (..), build, scrap
-                                            , scrapAll, toEvent, cut)
+                                            , scrapAll, toEvent, cut, pick)
 import           Org.GoogleCalendar.Event   (CalendarEvent (..))
 ------------------------------------------------------------
 fileLines :: FilePath -> IO [Tx.Text]
@@ -108,6 +108,18 @@ nodeConduit = do
         Nothing    -> return current
         Just title -> loop $ build title current
 
+pickConduit :: (Title -> Bool) -> ConduitT Title (Node Title) IO ()
+pickConduit f = do
+  nodeTree <- loop None
+  yield (pick f nodeTree)
+  where
+    loop :: Node Title -> ConduitT Title (Node Title) IO (Node Title)
+    loop current = do
+      stream <- await
+      case stream of
+        Nothing    -> return current
+        Just title -> loop $ build title current
+
 titleBackConduit :: ConduitT (Node Title) Title IO ()
 titleBackConduit = do
   node <- await
@@ -132,6 +144,12 @@ normalConduit :: ConduitT Tx.Text Title IO ()
 normalConduit = do
   titleConduit
   .| nodeConduit
+  .| titleBackConduit
+
+travelConduit :: (Title -> Bool) -> ConduitT Tx.Text Title IO ()
+travelConduit f =
+  titleConduit
+  .| pickConduit f
   .| titleBackConduit
 ------------------------------------------------------------
 eventSink :: ConduitT Title Void IO [CalendarEvent]
@@ -172,10 +190,10 @@ _debugPreTitleSink = do
 forICS :: IO [CalendarEvent]
 forICS = runConduit (orgSource .| normalConduit .| eventSink)
 
-forGeocode :: IO (Map.Map Tx.Text [Title])
-forGeocode = do
+forGeocode :: (Title -> Bool) -> IO (Map.Map Tx.Text [Title])
+forGeocode f = do
   runConduit (orgSource
-               .| normalConduit
+               .| travelConduit f
                .| locationSink)
 
 _test :: IO ()
