@@ -129,9 +129,11 @@ client cfg = (clientFile cfg >>= B.readFile) <&> decode
 
 appCore :: Config -> IO (Config, Client)
 appCore cfg = do
-  c <- client cfg
+  c     <- client cfg
   guard $ isJust c
-  return (cfg, fromJust c)
+  let client = fromJust c
+  aToken <- aliveAccessToken `evalStateT` (cfg, client)
+  return (cfg, client { accessToken = aToken })
 
 appCoreCalendar :: IO (Config, Client)
 appCoreCalendar = appCore configCalendar

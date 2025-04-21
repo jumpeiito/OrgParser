@@ -90,17 +90,17 @@ type Other = Record
   , "others"     :> Text
   , "geocode"    :> [GeocodeSearch]]
 
-type Text      = Tx.Text
-type Parser    = Parsec Void Text
-type Time      = (Tagged "Hour" Int, Tagged "Minute" Int)
-data LineBreak = LineBreak
-data GeocodeSearch = GeS Text (Maybe Text) deriving (Eq, Show)
-newtype Link   = Link (Text, Maybe Text) deriving Show
+type Text            = Tx.Text
+type Parser          = Parsec Void Text
+type Time            = (Tagged "Hour" Int, Tagged "Minute" Int)
+data LineBreak       = LineBreak
+data GeocodeSearch   = GeS Text (Maybe Text) deriving (Eq, Show)
+newtype Link         = Link (Text, Maybe Text) deriving Show
 newtype LevelEQTitle = LEQ Title
-newtype EqBuilder = EB TxLB.Builder deriving Show
+newtype EqBuilder    = EB TxLB.Builder deriving Show
 
-newtype Geocode = Geo Title
-newtype GeocodeUTC = GU UTCTime
+newtype Geocode      = Geo Title
+newtype GeocodeUTC   = GU UTCTime
 
 instance Show Geocode where
   show (Geo t) =

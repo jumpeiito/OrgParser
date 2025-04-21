@@ -13,6 +13,7 @@ module Org.Node
   , scrapWith
   , cut
   , pick
+  , select
   , toEvent
   )
 where
@@ -65,6 +66,7 @@ class Nodeable a where
   scrapWith      :: (a -> Bool) -> Node a -> [a]
   cut            :: (a -> Bool) -> Node a -> Node a
   pick           :: (a -> Bool) -> Node a -> Node a
+  select         :: (a -> Bool) -> Node a -> (Node a, Node a)
 
   build newa oldn = buildPath newa oldn `evalState` mempty
 
@@ -108,6 +110,9 @@ class Nodeable a where
   pick f (Node a n c)
     | f a = Node a None c
     | otherwise = (pick f n) <|> (pick f c)
+
+  select _ None = (None, None)
+  select f n = (pick f n, cut f n)
 
 instance Nodeable PTX.Title where
   isNext t1 t2 = PTX.LEQ t1 == PTX.LEQ t2

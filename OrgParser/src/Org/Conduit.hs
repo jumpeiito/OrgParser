@@ -15,6 +15,7 @@ import           Text.Megaparsec            (parse)
 import qualified Data.Map.Strict            as Map
 import           Data.Conduit
 import           Data.Conduit.List          (sourceList, consume)
+import qualified Data.Conduit.List          as CL
 import           Control.Lens               hiding ((:>), noneOf)
 import           System.Environment         (getEnv)
 import           System.Directory           (getDirectoryContents)
@@ -24,9 +25,12 @@ import qualified Data.Text.IO               as TxIO
 import qualified GHC.IO.Encoding            as Encoding
 import           Org.ParseText
 import           Org.Node                   (Node (..), build, scrap
-                                            , scrapAll, toEvent, cut, pick)
+                                            , scrapAll, toEvent
+                                            , cut, pick, select)
 import           Org.GoogleCalendar.Event   (CalendarEvent (..))
 ------------------------------------------------------------
+type GeocodeMap = Map.Map Tx.Text [Title]
+
 fileLines :: FilePath -> IO [Tx.Text]
 fileLines fp = do
   liftIO $ Encoding.setLocaleEncoding Encoding.utf8
@@ -95,30 +99,28 @@ titleConduit = do
             (Just c, Right (LO o)) -> do
               loop $ Just (o `mplusOther` c)
 
-nodeConduit :: ConduitT Title (Node Title) IO ()
-nodeConduit = do
+nodeConduitGenerator :: (Node Title -> b) -> ConduitT Title b IO ()
+nodeConduitGenerator nodeModify = do
   nodeTree <- loop None
-  yield (cut cutFunc nodeTree)
+  yield (nodeModify nodeTree)
   where
-    cutFunc ttl = (ttl ^. #label == "プログラムメモ") && (ttl ^. #level == 2)
-    loop :: Node Title -> ConduitT Title (Node Title) IO (Node Title)
     loop current = do
       stream <- await
       case stream of
         Nothing    -> return current
         Just title -> loop $ build title current
 
-pickConduit :: (Title -> Bool) -> ConduitT Title (Node Title) IO ()
-pickConduit f = do
-  nodeTree <- loop None
-  yield (pick f nodeTree)
+nodeConduit :: ConduitT Title (Node Title) IO ()
+nodeConduit = nodeConduitGenerator (cut f)
   where
-    loop :: Node Title -> ConduitT Title (Node Title) IO (Node Title)
-    loop current = do
-      stream <- await
-      case stream of
-        Nothing    -> return current
-        Just title -> loop $ build title current
+    f ttl = (ttl ^. #label == "プログラムメモ") && (ttl ^. #level == 2)
+
+pickConduit :: (Title -> Bool) -> ConduitT Title (Node Title) IO ()
+pickConduit f = nodeConduitGenerator (pick f)
+
+selectConduit :: (Title -> Bool)
+  -> ConduitT Title (Node Title, Node Title) IO ()
+selectConduit f = nodeConduitGenerator (select f)
 
 titleBackConduit :: ConduitT (Node Title) Title IO ()
 titleBackConduit = do
@@ -158,7 +160,7 @@ eventSink = do
   let makeEvent title = map (`toEvent` title) $ title ^. #timestamps
   return $ concatMap makeEvent titles
 
-locationSink :: ConduitT Title Void IO (Map.Map Tx.Text [Title])
+locationSink :: ConduitT Title Void IO GeocodeMap
 locationSink = loop Map.empty
   where
     loop m = do
@@ -171,14 +173,15 @@ locationSink = loop Map.empty
           let keys = if Tx.null loc then ges' else loc:ges'
           let map' = foldr (\k m' -> Map.insertWith (<>) k [ttl] m') m keys
           loop map'
--- _debugSink :: ConduitT Title Void IO ()
--- _debugSink = do
---   liftIO $ Encoding.setLocaleEncoding Encoding.utf8
---   awaitForever (liftIO . TxIO.putStrLn . debug)
---   where
---     debug title = Tx.unwords [title ^. #label
---                              , ":"
---                              , title ^. #paragraph]
+
+_debugSink :: ConduitT Title Void IO ()
+_debugSink = do
+  liftIO $ Encoding.setLocaleEncoding Encoding.utf8
+  awaitForever (liftIO . TxIO.putStrLn . debug)
+  where
+    debug title = Tx.unwords [title ^. #label
+                             , ":"
+                             , title ^. #paragraph]
 
 _debugPreTitleSink :: ConduitT Tx.Text Void IO ()
 _debugPreTitleSink = do
@@ -189,7 +192,7 @@ _debugPreTitleSink = do
 forICS :: IO [CalendarEvent]
 forICS = runConduit (orgSource .| normalConduit .| eventSink)
 
-forGeocode :: (Title -> Bool) -> IO (Map.Map Tx.Text [Title])
+forGeocode :: (Title -> Bool) -> IO GeocodeMap
 forGeocode f = do
   runConduit (orgSource
                .| travelConduit f
