@@ -24,6 +24,9 @@ library
                      , Org.Conduit
                      , Org.ICS
                      , Org.Document
+                     , Org.Google.Client
+                     , Org.Google.Geocoding
+                     , Org.Google.Kml
                      , Org.GoogleCalendar.Client
                      , Org.GoogleCalendar.Event
                      , Org.GoogleCalendar.Color

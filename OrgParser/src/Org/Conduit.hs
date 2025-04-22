@@ -7,11 +7,14 @@ module Org.Conduit
   , documentSource
   , normalConduit
   , documentConduit
+  , GeocodeMap
   )
 where
 
+import           Prelude                    hiding (takeWhile)
 import           Control.Monad.State
 import           Text.Megaparsec            (parse)
+import           Data.Maybe                 (fromJust)
 import qualified Data.Map.Strict            as Map
 import           Data.Conduit
 import           Data.Conduit.List          (sourceList, consume)
@@ -30,6 +33,17 @@ import           Org.Node                   (Node (..), build, scrap
 import           Org.GoogleCalendar.Event   (CalendarEvent (..))
 ------------------------------------------------------------
 type GeocodeMap = Map.Map Tx.Text [Title]
+
+data SelectType = SelectTrue Title | SelectFalse Title
+  deriving (Show, Eq)
+
+isSelectTrue :: SelectType -> Bool
+isSelectTrue (SelectTrue _) = True
+isSelectTrue _ = False
+
+runSelectType :: SelectType -> Title
+runSelectType (SelectTrue s) = s
+runSelectType (SelectFalse s) = s
 
 fileLines :: FilePath -> IO [Tx.Text]
 fileLines fp = do
@@ -67,6 +81,12 @@ orgSource = noteSource <> archiveSource
 documentSource :: FilePath -> ConduitT () Tx.Text IO ()
 documentSource document = liftIO (fileLines document)
                           >>= mapM_ yield
+
+geocodeProducer :: (Title -> Bool) -> ConduitT () SelectType IO ()
+geocodeProducer f = orgSource
+                    .| titleConduit
+                    .| selectConduit f
+                    .| selectTitleConduit
 ------------------------------------------------------------
 titleConduit :: ConduitT Tx.Text Title IO ()
 titleConduit = do
@@ -148,11 +168,14 @@ normalConduit = do
   .| nodeConduit
   .| titleBackConduit
 
-travelConduit :: (Title -> Bool) -> ConduitT Tx.Text Title IO ()
-travelConduit f =
-  titleConduit
-  .| pickConduit f
-  .| titleBackConduit
+selectTitleConduit :: ConduitT (Node Title, Node Title) SelectType IO ()
+selectTitleConduit = do
+  s <- await
+  case s of
+    Nothing -> return ()
+    Just (strue, sfalse) -> do
+      let toSource f = sourceList . map f . scrap
+      toSource SelectTrue strue <> toSource SelectFalse sfalse
 ------------------------------------------------------------
 eventSink :: ConduitT Title Void IO [CalendarEvent]
 eventSink = do
@@ -161,18 +184,46 @@ eventSink = do
   return $ concatMap makeEvent titles
 
 locationSink :: ConduitT Title Void IO GeocodeMap
-locationSink = loop Map.empty
+locationSink = CL.fold mapInsert Map.empty
   where
-    loop m = do
-      stream <- await
-      case stream of
-        Nothing  -> return m
-        Just ttl -> do
-          let (loc, ges) = ttl ^. #location
-          let ges' = map searchQuery ges :: [Tx.Text]
-          let keys = if Tx.null loc then ges' else loc:ges'
-          let map' = foldr (\k m' -> Map.insertWith (<>) k [ttl] m') m keys
-          loop map'
+    mapInsert m t =
+      let
+        (loc, ges) = t ^. #location
+        ges'       = map searchQuery ges
+        keys       = if Tx.null loc then ges' else loc:ges'
+      in
+        foldr (\ k m' -> Map.insertWith (<>) k [t] m') m keys
+
+forICS :: IO [CalendarEvent]
+forICS = runConduit (orgSource .| normalConduit .| eventSink)
+
+
+forGeocode :: (Title -> Bool) -> IO (GeocodeMap, GeocodeMap)
+forGeocode f = do
+  let source ss = runConduit (CL.sourceList ss
+                              .| CL.map runSelectType
+                              .| locationSink)
+  (resum01, strue) <- geocodeProducer f $$+ takeWhile isSelectTrue
+  sfalse           <- resum01 $$+- CL.consume
+  trueMap          <- source strue
+  falseMap         <- source sfalse
+  return (trueMap, falseMap)
+
+---- utility ------------------------------------------------
+takeWhile :: (a -> Bool) -> ConduitT a o IO [a]
+takeWhile f = do
+  a <- await
+  case f <$> a of
+    Just True -> (:) (fromJust a) <$> takeWhile f
+    _         -> return []
+
+---- debug --------------------------------------------------
+_test :: IO ()
+_test = do
+  r <- runConduit (orgSource
+                   .| normalConduit
+                   .| locationSink)
+  mapM_ (TxIO.putStrLn . fst) (Map.toList r)
 
 _debugSink :: ConduitT Title Void IO ()
 _debugSink = do
@@ -188,19 +239,3 @@ _debugPreTitleSink = do
   liftIO $ Encoding.setLocaleEncoding Encoding.utf8
   awaitForever $ \txt ->
     liftIO $ print $ parse lineParse "" txt
-
-forICS :: IO [CalendarEvent]
-forICS = runConduit (orgSource .| normalConduit .| eventSink)
-
-forGeocode :: (Title -> Bool) -> IO GeocodeMap
-forGeocode f = do
-  runConduit (orgSource
-               .| travelConduit f
-               .| locationSink)
-
-_test :: IO ()
-_test = do
-  r <- runConduit (orgSource
-                   .| normalConduit
-                   .| locationSink)
-  mapM_ (TxIO.putStrLn . fst) (Map.toList r)

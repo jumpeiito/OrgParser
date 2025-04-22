@@ -1,5 +1,7 @@
-{-# LANGUAGE DataKinds, FlexibleContexts #-}
-{-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE OverloadedLabels  #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Org.Google.Geocoding
   (
     Geocode (..)
@@ -21,14 +23,14 @@ import           Data.String.Conversions   (convertString)
 import qualified Data.Text                 as Tx
 import qualified Data.Text.IO              as TxIO
 import qualified Data.Map.Strict           as Map
-import           Data.Maybe                (catMaybes)
+import           Data.Maybe                ( catMaybes, fromMaybe
+                                           , fromJust, isNothing)
 import           System.Environment        (getEnv)
 import           Text.XML
 
 import qualified Org.ParseText             as P
-import           Org.Conduit               (forGeocode)
+import           Org.Conduit               (forGeocode, GeocodeMap)
 import           Org.Google.Kml            (toDocument, PlaceMark (..))
-
 
 data Config = Cfg
   { apiKeyFile :: FilePath
@@ -45,20 +47,18 @@ type App  = ReaderT Config IO
 
 instance FromJSON Geocode where
   parseJSON (Object v) = do
-    result    <- (v .: "results") :: Parser Value
-    objects   <- result & withArray ""
+    result  <- (v .: "results") :: Parser Value
+    objects <- result & withArray ""
                  (\a -> do
                      objList <- traverse (withObject ".." pure) $ toList a
                      return $ foldr KeyMap.union mempty objList)
-    let geo obj = do
-          bool <- obj .:? "geometry"
-          case bool of
-            Nothing  -> return (0.0, 0.0)
-            Just g   -> do
-              loc <- g .: "location"
+    let parseFloat g
+          | isNothing g = return (0.0, 0.0)
+          | otherwise = do
+              loc <- fromJust g .: "location"
               (,) <$> (loc .: "lat") <*> (loc .: "lng")
     G <$> (objects .:? "formatted_address")
-      <*> (geo objects)
+      <*> (objects .:? "geometry" >>= parseFloat)
       <*> (objects .:? "place_id")
   parseJSON invalid    =
     prependFailure "parsing Geocode failed, "
@@ -97,15 +97,25 @@ geocodeWriteFile docs = do
   let file = orgDir ++ "/" ++ "map.kml"
   TxIO.writeFile file $ convertString $ renderText def docs
 
-makeKmlFile :: IO ()
-makeKmlFile = do
-  let f t = (t ^. #label == "島根旅行") && (t ^. #level == 3)
-  addresses <- Map.toList <$> forGeocode f
-  ps <- (`runReaderT` config) $
+titleLabels :: [P.Title] -> Tx.Text
+titleLabels = Tx.intercalate " " . map (Tx.pack . show . P.Geo)
+
+toPlacemarks :: GeocodeMap -> Config -> IO [PlaceMark]
+toPlacemarks gmap cfg = do
+  let addresses = Map.toList gmap
+  ps <- (`runReaderT` cfg) $
     forM addresses $ \(location, titles) -> do
       g <- geocode location
-      let desc = Tx.intercalate " " $ map (Tx.pack . show . P.Geo) titles
+      let desc = titleLabels titles
       if (geometry g == (0.0, 0.0)) || (length titles /= 1)
         then return Nothing
         else return $ Just $ P desc location (geometry g)
-  geocodeWriteFile $ toDocument (catMaybes ps)
+  return $ catMaybes ps
+
+makeKmlFile :: IO ()
+makeKmlFile = do
+  let f t = (t ^. #label == "島根旅行") && (t ^. #level == 3)
+  (trueM, falseM) <- forGeocode f
+  pts <- toPlacemarks trueM config
+  pfs <- toPlacemarks falseM config
+  geocodeWriteFile $ toDocument pts pfs

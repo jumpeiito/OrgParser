@@ -561,7 +561,7 @@ spec = do
                                       [ "hoge "
                                       , "foo "
                                       , "<a href=\"http://google.co.jp\">Google</a>", "buz! "]
-                <: #geocode @= [("かみあり製麺", Just "島根県出雲市斐川町学頭1815-1")]
+                <: #geocode @= [GeS "かみあり製麺" (Just "島根県出雲市斐川町学頭1815-1")]
                 <: nil)
     it "(7)" $ do
       parse f "" "hoge <2025-04-10 月> foo {{かみあり製麺}{島根県出雲市斐川町学頭1815-1}} [[http://google.co.jp][Google]] buz! SCHEDULED: <2025-04-11 火 12:00-17:00>"
@@ -580,7 +580,7 @@ spec = do
                                       [ "hoge "
                                       , "foo "
                                       , "<a href=\"http://google.co.jp\">Google</a>", "buz! "]
-                <: #geocode @= [("かみあり製麺", Just "島根県出雲市斐川町学頭1815-1")]
+                <: #geocode @= [GeS "かみあり製麺" (Just "島根県出雲市斐川町学頭1815-1")]
                 <: nil)
   describe "lineParse" $ do
     it "(1)" $ do

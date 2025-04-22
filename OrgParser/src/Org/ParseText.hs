@@ -158,11 +158,10 @@ changeSlots sym value tsmp = tsmp & sym .~ value
 
 tagsP :: Parser [Text]
 tagsP = do
-  let tkn = some $ noneOf (" :\t\n" :: [Token Text])
+  let tagToken = Tx.pack <$> (some $ noneOf [' ', ':', '\t', '\n'])
   let sep = single ':'
-  tagname <- sep *> (Tx.pack <$> tkn)
-             <* lookAhead sep
-  loop    <- try tagsP <|> return []
+  tagname <- between sep (lookAhead sep) tagToken
+  loop    <- mempty `option` try tagsP
   return $ tagname : loop
 
 rangeP :: (Read a, Ord a) =>
@@ -238,9 +237,8 @@ timestampSingleP = changeSlots #active True <$> activeParser
 timestampP :: Parser Timestamp
 timestampP = do
   stampStyle <- timestampTypeP
-  let anotherTimestamp = Just <$> (single '-' *> timestampSingleP)
-  (ts1, ts2) <- (,) <$> timestampSingleP
-                    <*> (Nothing `option` anotherTimestamp)
+  ts1 <- timestampSingleP
+  ts2 <- Nothing `option` (Just <$> (single '-' *> timestampSingleP))
   let endtime = (ts1 ^. #end) `mplus` ((^. #begin) <$> ts2)
   return $ foldr ($) ts1 [ #datetype `changeSlots` stampStyle
                          , #end `changeSlots` endtime]
@@ -313,7 +311,6 @@ linkP = between (chunk "[[") (chunk "]]") linkCore
 geocodeP :: Parser GeocodeSearch
 geocodeP = between (chunk "{{") (chunk "}}") geocodeCore
   where
-    geocodeToken :: Parser Text
     geocodeToken = Tx.pack <$> some (noneOf ['}'])
     geocodeCore  = do
       geoTarget <- geocodeToken
