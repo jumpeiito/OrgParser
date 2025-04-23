@@ -23,12 +23,11 @@ import           Data.String.Conversions   (convertString)
 import qualified Data.Text                 as Tx
 import qualified Data.Text.IO              as TxIO
 import qualified Data.Map.Strict           as Map
-import           Data.Maybe                ( catMaybes, fromMaybe
-                                           , fromJust, isNothing)
+import           Data.Maybe                (catMaybes, fromJust, isNothing)
 import           System.Environment        (getEnv)
 import           Text.XML
 
-import qualified Org.ParseText             as P
+import qualified Org.Parse.Text            as P
 import           Org.Conduit               (forGeocode, GeocodeMap)
 import           Org.Google.Kml            (toDocument, PlaceMark (..))
 
@@ -83,12 +82,7 @@ geocode address = do
   key <- apiKey
   runReq defaultHttpConfig $ do
     let query = "key" =: key <> "address" =: address
-    res <- req
-           GET
-           url
-           NoReqBody
-           jsonResponse
-           query
+    res <- req GET url NoReqBody jsonResponse query
     return $ responseBody res
 
 geocodeWriteFile :: Document -> IO ()

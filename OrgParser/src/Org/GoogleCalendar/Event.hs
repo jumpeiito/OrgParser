@@ -20,21 +20,22 @@ module Org.GoogleCalendar.Event
   )
 where
 
-import  Data.Maybe              (fromMaybe, fromJust, isNothing, isJust)
-import  Data.Either             (fromRight, isLeft)
-import  Data.Function           (on)
-import  Data.Aeson
-import  Data.Aeson.Key          (fromString)
-import  Data.Aeson.Types hiding (parse)
-import  Data.Kind               (Type)
-import  Data.Time
-import  Data.List               (inits, tails)
-import  Text.Parsec
-import  Data.Functor.Const
-import  qualified Data.Text     as Tx
+import           Data.Maybe             (fromMaybe, fromJust, isNothing, isJust)
+import           Data.Function          (on)
+import           Data.Aeson
+import           Data.Aeson.Key         (fromString)
+import           Data.Aeson.Types       hiding (parse, parseMaybe)
+import           Data.Kind              (Type)
+import           Data.Void              (Void)
+import           Data.Time
+import           Data.List              (inits, tails)
+import           Text.Megaparsec
+import           Text.Megaparsec.Char   (digitChar)
+import           Data.Functor.Const
+import qualified Data.Text              as Tx
 
 data CalendarEvent =
-  CalendarEvent { eventCreated     :: Either ParseError UTCTime
+  CalendarEvent { eventCreated     :: Maybe UTCTime
                 , eventDescription :: Maybe Tx.Text
                 , eventEnd         :: Maybe UTCTime
                 , eventEtag        :: Tx.Text
@@ -42,7 +43,7 @@ data CalendarEvent =
                 , eventID          :: Tx.Text
                 , eventStart       :: Maybe UTCTime
                 , eventSummary     :: Tx.Text
-                , eventUpdated     :: Either ParseError UTCTime
+                , eventUpdated     :: Maybe UTCTime
                 , eventLocation    :: Maybe Tx.Text
                 , eventColorID     :: Maybe Tx.Text
                 , eventBirthDay    :: Maybe Value }
@@ -78,8 +79,9 @@ instance Show ColorEvent where
 
 eventDefault :: CalendarEvent
 eventDefault =
-  CalendarEvent { eventCreated     = Right (UTCTime (fromGregorian 2025 4 1)
-                                                    (secondsToDiffTime 0))
+  CalendarEvent { eventCreated     =
+                  Just (UTCTime (fromGregorian 2025 4 1)
+                                (secondsToDiffTime 0))
                 , eventDescription = Nothing
                 , eventEnd         = Nothing
                 , eventEtag        = mempty
@@ -87,8 +89,9 @@ eventDefault =
                 , eventID          = mempty
                 , eventStart       = Nothing
                 , eventSummary     = mempty
-                , eventUpdated     = Right (UTCTime (fromGregorian 2025 4 1)
-                                                    (secondsToDiffTime 0))
+                , eventUpdated     =
+                  Just (UTCTime (fromGregorian 2025 4 1)
+                                (secondsToDiffTime 0))
                 , eventLocation    = Nothing
                 , eventColorID     = Nothing
                 , eventBirthDay    = Nothing }
@@ -115,6 +118,7 @@ instance FromJSON CalendarEvent where
       endParse   = toUTCTime <$> (v .: "end")   -- Parse (Maybe UTCTime)
       endTime    = repairTime <$> startParse <*> endParse
       oneDayS    = 24 * 60 * 60
+      dgParse    = return . parseMaybe dateGreenWichParse
       repairTime stMaybe enMaybe =
         let
           predicates = [(/= stMaybe), (> (addUTCTime oneDayS <$> stMaybe))]
@@ -124,7 +128,7 @@ instance FromJSON CalendarEvent where
                              <*> (utctDayTime <$> enMaybe)
             False -> enMaybe
     in
-    CalendarEvent <$> (parse dateGreenWichParse "" <$> (v .: "created"))
+    CalendarEvent <$> (v .: "created" >>= dgParse)
                   <*> descRefine
                   <*> endTime
                   <*> (v .: "etag")
@@ -132,7 +136,7 @@ instance FromJSON CalendarEvent where
                   <*> (v .: "id")
                   <*> startParse
                   <*> (v .: "summary")
-                  <*> (parse dateGreenWichParse "" <$> (v .: "updated"))
+                  <*> (v .: "updated" >>= dgParse)
                   <*> (v .:? "location")
                   <*> (v .:? "colorId")
                   <*> (v .:? "birthdayProperties")
@@ -166,23 +170,13 @@ instance Show CalendarEvent where
     in
       Tx.unpack $ Tx.concat [ st , "->" , en, " : "
                             , summary, ":", mempty `fromMaybe` d]
-    -- let
-    --   st = mempty `fromMaybe` (show <$> s)
-    --   en = mempty `fromMaybe` (show <$> e)
-    -- in
-    --   st
-    --   ++ "->"
-    --   ++ en
-    --   ++ " : "
-    --   ++ summary
-    --   ++ ":"
-    --   ++ mempty `fromMaybe` d
 
 instance Ord CalendarEvent where
   (CalendarEvent _ _ _ _ _ _ s1 _ _ _ _ _) `compare`
     (CalendarEvent _ _ _ _ _ _ s2 _ _ _ _ _) = s1 `compare` s2
 
-data EventTime = EventTime (Maybe String) (Maybe String) deriving (Show, Eq)
+data EventTime = EventTime (Maybe String) (Maybe String)
+  deriving (Show, Eq)
 
 instance FromJSON EventTime where
   parseJSON (Object v) = EventTime <$> (v .:? "date")
@@ -191,23 +185,25 @@ instance FromJSON EventTime where
     prependFailure "parsing EventTime failed, "
     (typeMismatch "Object" invalid)
 
-dateParse :: Parsec String () UTCTime
+dateParse :: Parsec Void String UTCTime
 dateParse = do
-  [y, m, d]  <- map read <$> sequence [ count 4 digit <* string "-"
-                                      , count 2 digit <* string "-"
-                                      , count 2 digit]
-  [h, mi, s] <- (string "T" *> timeParse) <|> return [0, 0, 0]
-  let day = fromGregorian (toInteger y) m d
+  [y', m', d']  <- map read <$> sequence dateList
+  [h, mi, s]    <- [0, 0, 0] `option` (chunk "T" *> timeParse)
+  let day = fromGregorian (toInteger y') m' d'
   return $ UTCTime day (secondsToDiffTime (h * 3600 + mi * 60 + s))
   where
-    timeParse = map read <$> sequence [ count 2 digit <* string ":"
-                                      , count 2 digit <* string ":"
-                                      , count 2 digit]
+    d :: Int -> Parsec Void String String
+    d i       = count i digitChar
+    datesep   = chunk "-"
+    timesep   = chunk ":"
+    dateList  = [d 4 <* datesep, d 2 <* datesep, d 2]
+    timeList  = [d 2 <* timesep, d 2 <* timesep, d 2]
+    timeParse = map read <$> sequence timeList
 
 toJapaneseTime :: UTCTime -> UTCTime
 toJapaneseTime = ((9 * 3600) `addUTCTime`)
 
-dateGreenWichParse :: Parsec String () UTCTime
+dateGreenWichParse :: Parsec Void String UTCTime
 dateGreenWichParse = toJapaneseTime <$> dateParse
 
 jpTimeLocale :: TimeLocale
@@ -226,11 +222,7 @@ jpTimeLocale =
              , amPm           = (mempty, mempty)}
 
 toUTCTime :: EventTime -> Maybe UTCTime
-toUTCTime (EventTime d dt) =
-  case parse dateParse "" <$> (d <> dt) of
-    Nothing        -> Nothing
-    Just (Right u) -> Just u
-    _              -> Nothing
+toUTCTime (EventTime d dt) = (d <> dt) >>= parseMaybe dateParse
 
 data GoogleTimeType = GDate | GDateTime deriving (Eq)
 
@@ -328,9 +320,9 @@ instance ComposeDate Maybe where
   unpureDate = fromJust
   isFailureDate = isNothing
 
-instance ComposeDate (Either ParseError) where
-  unpureDate = fromRight (UTCTime (fromGregorian 1900 1 1) (secondsToDiffTime 0))
-  isFailureDate = isLeft
+-- instance ComposeDate (Either ParseError) where
+--   unpureDate = fromRight (UTCTime (fromGregorian 1900 1 1) (secondsToDiffTime 0))
+--   isFailureDate = isLeft
 
 instance ComposeString (Const String) where
   unpureString    = getConst

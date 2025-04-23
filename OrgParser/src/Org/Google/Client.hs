@@ -131,9 +131,9 @@ appCore :: Config -> IO (Config, Client)
 appCore cfg = do
   c     <- client cfg
   guard $ isJust c
-  let client = fromJust c
-  aToken <- aliveAccessToken `evalStateT` (cfg, client)
-  return (cfg, client { accessToken = aToken })
+  let client' = fromJust c
+  aToken <- aliveAccessToken `evalStateT` (cfg, client')
+  return (cfg, client' { accessToken = aToken })
 
 appCoreCalendar :: IO (Config, Client)
 appCoreCalendar = appCore configCalendar

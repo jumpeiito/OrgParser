@@ -4,28 +4,10 @@
 {-# LANGUAGE OverloadedLabels     #-}
 {-# LANGUAGE OverloadedRecordDot  #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-module Org.Node
-  (
-    Node (..)
-  , build
-  , scrap
-  , scrapAll
-  , scrapWith
-  , cut
-  , pick
-  , select
-  , toEvent
-  )
-where
+module Org.Node (Node (..) , Nodeable (..)) where
 
 import           Control.Applicative        ((<|>), Alternative (..))
-import           Control.Lens               hiding ((:>), noneOf)
 import           Control.Monad.State
-import           Data.Maybe
-import qualified Data.Text                  as Tx
--- import qualified Text.Builder               as TxLB
-import qualified Org.ParseText              as PTX
-import           Org.GoogleCalendar.Event
 
 data Node a = Node a (Node a) (Node a)
             | None
@@ -113,40 +95,3 @@ class Nodeable a where
 
   select _ None = (None, None)
   select f n = (pick f n, cut f n)
-
-instance Nodeable PTX.Title where
-  isNext t1 t2 = PTX.LEQ t1 == PTX.LEQ t2
-  final paths ttl =
-    let pathText = (Tx.intercalate "/" $ map (^. #label) paths) in
-      ttl & #path .~ pathText
-  scrapFilter ttl =
-    let
-      hasAliveTime = any notCloseAndActive timestamps
-      timestamps = ttl ^. #timestamps
-      notCloseAndActive timestamp =
-        (timestamp ^. #datetype /= PTX.Closed) && (timestamp ^. #active)
-      notTODO = isNothing $ ttl ^. #todo
-    in
-      hasAliveTime && notTODO
-
-toEvent :: PTX.Timestamp -> PTX.Title -> CalendarEvent
-toEvent stamp ttl =
-  let
-    (ttlLocation, _) = ttl ^. #location
-    location = if Tx.null ttlLocation then Nothing else Just ttlLocation
-  in
-    eventDefault
-  { eventDescription = desc
-  , eventEnd         = stamp ^. #end <|> Just (stamp ^. #begin)
-  , eventStart       = Just (stamp ^. #begin)
-  , eventSummary     = Tx.dropWhileEnd (== ' ') (ttl ^. #label)
-  , eventLocation    = location }
-  where
-    path' = ttl ^. #path
-    para' = Tx.stripEnd $ ttl ^. #paragraph
-    ps    = [path' == mempty, para' == mempty]
-    sep   = if all not ps then "\n" else ""
-    desc  =
-      if all id ps
-      then Nothing
-      else Just $ foldMap (<>) [path', sep, para'] mempty

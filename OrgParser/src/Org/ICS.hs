@@ -22,12 +22,11 @@ import           Data.Aeson.Types
 import           Data.Maybe                  (fromJust, isJust)
 import           Data.String.Conversions     (convertString)
 import           Control.Monad               (forM_)
--- impo          t  Control.Monad.Reader    (runReaderT, liftIO, asks)
 import           Control.Monad.State
 import           Network.HTTP.Req
 import           Org.Conduit                 (forICS)
--- import  Org.GoogleCalendar.Client
-import           Org.Google.Client           (App, Client (..), appCoreCalendar)
+import           Org.Google.Client           (App, Client (..)
+                                             , appCoreCalendar)
 import           Org.GoogleCalendar.Event
 import qualified Org.GoogleCalendar.Color    as GCC
 import qualified GHC.IO.Encoding             as Encoding

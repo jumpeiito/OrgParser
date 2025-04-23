@@ -1,66 +1,37 @@
-{-# LANGUAGE TemplateHaskell, DataKinds, TypeOperators, FlexibleContexts #-}
-{-# LANGUAGE OverloadedLabels, OverloadedStrings #-}
+{-# LANGUAGE StrictData        #-}
+{-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE StrictData #-}
-{-# OPTIONS_GHC -fno-warn-unticked-promoted-constructors #-}
-module Org.ParseText
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE OverloadedLabels  #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeOperators     #-}
+module Org.Parse.Text
   (
-    tagsP
-  , rangeP
-  , yearP
-  , monthP
-  , dayP
-  , hourP
-  , minuteP
-  , timeP
-  , japaneseDayofWeekP
-  , dateYMDP
-  , timestampTypeP
-  , timestampCoreP
-  , timestampSingleP
-  , timestampP
-  , orgstarsP
-  , todoP
-  , titleP
-  -- , otherP
-  , otherRefineP
-  , timestampTypeRefineP
-  , makeUTC
-  , defOther
-  , lineParse
-  , defTitle
-  , mplusOther
-  , searchQuery
-  , TimestampType (..)
-  , Timestamp
+    Line (..)
   , Title
-  , Line (..)
-  , LevelEQTitle (..)
   , Other
   , Geocode (..)
-  , GeocodeSearch (..)
-  , EqBuilder (..)
+  , LevelEQTitle (..)
+  , defTitle
+  , defOther
+  , mplusOther
+  , lineParse
+  , searchQuery
   )
 where
 
-import           GHC.Base           (Alternative)
-import           Data.Time
-import           Data.Maybe         (isJust, maybeToList, fromMaybe)
-import           Data.List          (intercalate)
-import           Data.Void
-import           Data.Coerce
-import           Data.Tagged
+import           Control.Monad          (guard)
+import           Control.Lens           hiding ((:>), noneOf)
+import           Data.List              (intercalate)
 import qualified Data.Text              as Tx
-import qualified Text.Builder           as TxLB
+import           Data.Maybe             (fromMaybe, maybeToList, isJust
+                                        , isNothing)
+import           Data.Extensible
+import           Org.Parse.Utility
+import           Org.Parse.Time
+import           Org.Node
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
-import           Control.Monad
-import           Data.Extensible
-import           Control.Lens        hiding ((:>), noneOf)
-
-
-data TimestampType = Normal | Scheduled | Deadline | Closed
-  deriving (Show, Eq)
 
 data Line = LL Title
           | LP (Text, Text)
@@ -79,28 +50,16 @@ type Title = Record
   , "location"   :> (Text, [GeocodeSearch])
   , "path"       :> Text ]
 
-type Timestamp = Record
-  [ "begin"    :> UTCTime
-  , "datetype" :> TimestampType
-  , "active"   :> Bool
-  , "end"      :> Maybe UTCTime ]
-
 type Other = Record
   [ "timestamps" :> [Timestamp]
   , "others"     :> Text
   , "geocode"    :> [GeocodeSearch]]
 
-type Text            = Tx.Text
-type Parser          = Parsec Void Text
-type Time            = (Tagged "Hour" Int, Tagged "Minute" Int)
 data LineBreak       = LineBreak
 data GeocodeSearch   = GeS Text (Maybe Text) deriving (Eq, Show)
 newtype Link         = Link (Text, Maybe Text) deriving Show
 newtype LevelEQTitle = LEQ Title
-newtype EqBuilder    = EB TxLB.Builder deriving Show
-
 newtype Geocode      = Geo Title
-newtype GeocodeUTC   = GU UTCTime
 
 instance Show Geocode where
   show (Geo t) =
@@ -112,17 +71,8 @@ instance Show Geocode where
       (Tx.unpack (t ^. #label)) ++ "(" ++
       intercalate "・" (map (show . GU . (^. #begin)) ts) ++ ")"
 
-instance Show GeocodeUTC where
-  show (GU d) =
-    let
-      (y', m', d') = toGregorian $ utctDay d
-      y2  = y' `mod` 100
-    in
-      show y2 ++ "/" ++ show m' ++ "/" ++ show d'
-
--- mkField "label level todo tags timestamps paragraph properties location path"
--- mkField "begin datetype active end"
--- mkField "others"
+instance Eq LevelEQTitle where
+  (LEQ t1) == (LEQ t2) = t1 ^. #level == t2 ^. #level
 
 defTitle :: Title
 defTitle = #label         @= mempty
@@ -153,9 +103,6 @@ mplusOther o t =
   in
     x3
 
-changeSlots :: ASetter a1 b1 a2 b2 -> b2 -> a1 -> b1
-changeSlots sym value tsmp = tsmp & sym .~ value
-
 tagsP :: Parser [Text]
 tagsP = do
   let tagToken = Tx.pack <$> (some $ noneOf [' ', ':', '\t', '\n'])
@@ -163,86 +110,6 @@ tagsP = do
   tagname <- between sep (lookAhead sep) tagToken
   loop    <- mempty `option` try tagsP
   return $ tagname : loop
-
-rangeP :: (Read a, Ord a) =>
-  Tagged "Max" a -> Tagged "Min" a -> Tagged "Count" Int -> Parser a
-rangeP maxi mini c = do
-  parsed <- read <$> count (unTagged c) digitChar
-  guard (mini <= coerce parsed && coerce parsed <= maxi)
-  return parsed
-
-yearP   :: Parser (Tagged "Year" Integer)
-monthP  :: Parser (Tagged "Month" Int)
-dayP    :: Parser (Tagged "Day" Int)
-hourP   :: Parser (Tagged "Hour" Int)
-minuteP :: Parser (Tagged "Minute" Int)
-yearP   = (Proxy `tagWith`) <$> rangeP 2099 2024 4
-monthP  = (Proxy `tagWith`) <$> rangeP 12 1 2
-dayP    = (Proxy `tagWith`) <$> rangeP 31 1 2
-hourP   = (Proxy `tagWith`) <$> rangeP 23 0 2
-minuteP = (Proxy `tagWith`) <$> rangeP 59 0 2
-
-timeP :: Parser (Time, Maybe Time)
-timeP = (,) <$> timeCore
-            <*> Nothing `option` (Just <$> (single '-' *> timeCore))
-  where
-    sep = char ':'
-    timeCore :: Parser Time
-    timeCore = (,) <$> hourP <* sep <*> minuteP
-
-japaneseDayofWeekP :: Parser (Token Text)
-japaneseDayofWeekP =
-  choice $ map single "月火水木金土日"
-
-dateYMDP ::
-  Parser (Tagged "Year" Integer, Tagged "Month" Int, Tagged "Day" Int)
-dateYMDP = (,,) <$> yearP <* sep <*> monthP <* sep <*> dayP
-  where
-    sep = char '-'
-
-timestampTypeP :: Parser TimestampType
-timestampTypeP = Normal `option` anyP parsers
-  where
-    parsers = [ try (chunk k >> return t)
-              | (k, t) <- zip ["SCHEDULED: ", "DEADLINE: ", "CLOSED: "]
-                              [Scheduled, Deadline, Closed]]
-
-timestampTypeRefineP :: Parser TimestampType
-timestampTypeRefineP =
-  try (chunk "SCHEDULED: "    >> return Scheduled)
-  <|> try (chunk "DEADLINE: " >> return Deadline)
-  <|> try (chunk "CLOSED: "   >> return Closed)
-  <|> return Normal
-
-timestampCoreP :: Parser Timestamp
-timestampCoreP = do
-  let sep = single ' '
-  (y, m, d)     <- dateYMDP
-  _             <- sep >> japaneseDayofWeekP
-  ((h, mi), en) <- ((0, 0), Nothing) `option` (sep >> timeP)
-  return $
-    #begin @= makeUTC y m d h mi
-    <: #datetype @= Normal
-    <: #active @= True
-    <: #end    @= (uncurry (makeUTC y m d) <$> en)
-    <: nil
-
-timestampSingleP :: Parser Timestamp
-timestampSingleP = changeSlots #active True <$> activeParser
-                   <|> changeSlots #active False <$> inactiveParser
-  where
-    activeParser       = between (single '<') (single '>') timestampCoreP
-    inactiveParser     = between (single '[') (single ']') timestampCoreP
-
-timestampP :: Parser Timestamp
-timestampP = do
-  stampStyle <- timestampTypeP
-  ts1 <- timestampSingleP
-  ts2 <- Nothing `option` (Just <$> (single '-' *> timestampSingleP))
-  let endtime = (ts1 ^. #end) `mplus` ((^. #begin) <$> ts2)
-  return $ foldr ($) ts1 [ #datetype `changeSlots` stampStyle
-                         , #end `changeSlots` endtime]
-{-# INLINE timestampP #-}
 
 orgstarsP :: Parser Int
 orgstarsP = length <$> someTill (single '*') (single ' ')
@@ -288,8 +155,8 @@ titleP = do
 
 propertyP :: Parser (Text, Text)
 propertyP =
-  try (string ":PROPERTIES:" >> return ("PROPERTIES", mempty))
-  <|> try (string ":END:" >> return ("END", mempty))
+  try (chunk ":PROPERTIES:" >> return ("PROPERTIES", mempty))
+  <|> try (chunk ":END:" >> return ("END", mempty))
   <|> (,) <$> pname <*> (some (single ' ') *> pval)
   where
     pname, pval, pnameCore :: Parser Text
@@ -363,37 +230,20 @@ lineParse = LO defOther `option` (ll <|> lp <|> lb <|> lo)
     lo = LO <$> try otherRefineP
 {-# INLINE lineParse #-}
 
--- ---- Utility -----------------------------------------------
-fromG ::
-  Tagged "Year" Integer ->
-  Tagged "Month" Int ->
-  Tagged "Day" Int ->
-  Day
-fromG y m d = fromGregorian (untag y) (untag m) (untag d)
-
-makeUTC ::
-  Tagged "Year" Integer ->
-  Tagged "Month" Int ->
-  Tagged "Day" Int ->
-  Tagged "Hour" Int ->
-  Tagged "Minute" Int ->
-  UTCTime
-makeUTC y m d h mi = UTCTime (fromG y m d) dayOfSeconds
-  where
-    dayOfSeconds =
-      secondsToDiffTime $ toInteger h * 3600 + toInteger mi * 60
-
-anyP :: Alternative f => [f a] -> f a
-anyP (p:parsers) = foldl (<|>) p parsers
-anyP [] = undefined
-
--- pt
---   :: (ShowErrorComponent e, Show a) =>
---      Parsec e Text a -> String -> IO ()
--- pt parser str = parser `parseTest` Tx.pack str
-
-instance Eq LevelEQTitle where
-  (LEQ t1) == (LEQ t2) = t1 ^. #level == t2 ^. #level
+instance Nodeable Title where
+  isNext t1 t2 = LEQ t1 == LEQ t2
+  final paths ttl =
+    let pathText = (Tx.intercalate "/" $ map (^. #label) paths) in
+      ttl & #path .~ pathText
+  scrapFilter ttl =
+    let
+      hasAliveTime = any notCloseAndActive timestamps
+      timestamps   = ttl ^. #timestamps
+      notCloseAndActive timestamp =
+        (timestamp ^. #datetype /= Closed) && (timestamp ^. #active)
+      notTODO = isNothing $ ttl ^. #todo
+    in
+      hasAliveTime && notTODO
 
 searchQuery :: GeocodeSearch -> Text
 searchQuery (GeS _ (Just y)) = y

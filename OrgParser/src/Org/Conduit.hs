@@ -12,6 +12,7 @@ module Org.Conduit
 where
 
 import           Prelude                    hiding (takeWhile)
+import           Control.Applicative        ((<|>))
 import           Control.Monad.State
 import           Text.Megaparsec            (parse)
 import           Data.Maybe                 (fromJust)
@@ -26,11 +27,12 @@ import qualified Data.List                  as Dl
 import qualified Data.Text                  as Tx
 import qualified Data.Text.IO               as TxIO
 import qualified GHC.IO.Encoding            as Encoding
-import           Org.ParseText
-import           Org.Node                   (Node (..), build, scrap
-                                            , scrapAll, toEvent
-                                            , cut, pick, select)
-import           Org.GoogleCalendar.Event   (CalendarEvent (..))
+-- import           Org.ParseText
+import           Org.Parse.Time
+import           Org.Parse.Text
+import           Org.Node                   (Node (..), Nodeable (..))
+import           Org.GoogleCalendar.Event   (CalendarEvent (..)
+                                            , eventDefault)
 ------------------------------------------------------------
 type GeocodeMap = Map.Map Tx.Text [Title]
 
@@ -135,8 +137,8 @@ nodeConduit = nodeConduitGenerator (cut f)
   where
     f ttl = (ttl ^. #label == "プログラムメモ") && (ttl ^. #level == 2)
 
-pickConduit :: (Title -> Bool) -> ConduitT Title (Node Title) IO ()
-pickConduit f = nodeConduitGenerator (pick f)
+_pickConduit :: (Title -> Bool) -> ConduitT Title (Node Title) IO ()
+_pickConduit f = nodeConduitGenerator (pick f)
 
 selectConduit :: (Title -> Bool)
   -> ConduitT Title (Node Title, Node Title) IO ()
@@ -216,6 +218,28 @@ takeWhile f = do
   case f <$> a of
     Just True -> (:) (fromJust a) <$> takeWhile f
     _         -> return []
+
+toEvent :: Timestamp -> Title -> CalendarEvent
+toEvent stamp ttl =
+  let
+    (ttlLocation, _) = ttl ^. #location
+    location = if Tx.null ttlLocation then Nothing else Just ttlLocation
+  in
+    eventDefault
+  { eventDescription = desc
+  , eventEnd         = stamp ^. #end <|> Just (stamp ^. #begin)
+  , eventStart       = Just (stamp ^. #begin)
+  , eventSummary     = Tx.dropWhileEnd (== ' ') (ttl ^. #label)
+  , eventLocation    = location }
+  where
+    path' = ttl ^. #path
+    para' = Tx.stripEnd $ ttl ^. #paragraph
+    ps    = [path' == mempty, para' == mempty]
+    sep   = if all not ps then "\n" else ""
+    desc  =
+      if all id ps
+      then Nothing
+      else Just $ foldMap (<>) [path', sep, para'] mempty
 
 ---- debug --------------------------------------------------
 _test :: IO ()
