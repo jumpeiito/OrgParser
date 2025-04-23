@@ -116,7 +116,8 @@ getGoogleCalendarPage nextToken cal = do
   runReq defaultHttpConfig $ do
     res <- req GET (url cal) NoReqBody jsonResponse
                (headerAuthorization aToken <> query)
-    return $ responseBody res
+    -- liftIO $ print (responseBody res)
+    return $ (responseBody res :: CalendarResponse)
       where
         options :: [(Text, Text)]
         query   :: Option scheme

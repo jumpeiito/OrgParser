@@ -29,6 +29,7 @@ import           Data.Kind              (Type)
 import           Data.Void              (Void)
 import           Data.Time
 import           Data.List              (inits, tails)
+import           Data.Functor           ((<&>))
 import           Text.Megaparsec
 import           Text.Megaparsec.Char   (digitChar)
 import           Data.Functor.Const
@@ -118,7 +119,7 @@ instance FromJSON CalendarEvent where
       endParse   = toUTCTime <$> (v .: "end")   -- Parse (Maybe UTCTime)
       endTime    = repairTime <$> startParse <*> endParse
       oneDayS    = 24 * 60 * 60
-      dgParse    = return . parseMaybe dateGreenWichParse
+      dgParse    = parseMaybe dateGreenWichParse
       repairTime stMaybe enMaybe =
         let
           predicates = [(/= stMaybe), (> (addUTCTime oneDayS <$> stMaybe))]
@@ -128,7 +129,7 @@ instance FromJSON CalendarEvent where
                              <*> (utctDayTime <$> enMaybe)
             False -> enMaybe
     in
-    CalendarEvent <$> (v .: "created" >>= dgParse)
+    CalendarEvent <$> (v .: "created" <&> dgParse)
                   <*> descRefine
                   <*> endTime
                   <*> (v .: "etag")
@@ -136,7 +137,7 @@ instance FromJSON CalendarEvent where
                   <*> (v .: "id")
                   <*> startParse
                   <*> (v .: "summary")
-                  <*> (v .: "updated" >>= dgParse)
+                  <*> (v .: "updated" <&> dgParse)
                   <*> (v .:? "location")
                   <*> (v .:? "colorId")
                   <*> (v .:? "birthdayProperties")
@@ -188,7 +189,7 @@ instance FromJSON EventTime where
 dateParse :: Parsec Void String UTCTime
 dateParse = do
   [y', m', d']  <- map read <$> sequence dateList
-  [h, mi, s]    <- [0, 0, 0] `option` (chunk "T" *> timeParse)
+  [h, mi, s]    <- [0, 0, 0] `option` (chunk "T" *> timeParse <* many anySingle)
   let day = fromGregorian (toInteger y') m' d'
   return $ UTCTime day (secondsToDiffTime (h * 3600 + mi * 60 + s))
   where
@@ -222,7 +223,14 @@ jpTimeLocale =
              , amPm           = (mempty, mempty)}
 
 toUTCTime :: EventTime -> Maybe UTCTime
-toUTCTime (EventTime d dt) = (d <> dt) >>= parseMaybe dateParse
+toUTCTime (EventTime d dt) = (d <|> dt) >>= parseMaybe dateParse
+-- toUTCTime (EventTime d dt) = 
+  -- case (d <|> dt) of
+  --   Nothing -> error $ show d ++ show dt
+  --   Just d' ->
+  --     case parseMaybe dateParse d' of
+  --       Just j -> Just j
+  --       Nothing -> error $ show d'
 
 data GoogleTimeType = GDate | GDateTime deriving (Eq)
 
