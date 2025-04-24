@@ -6,17 +6,16 @@ module Org.Document
   )
 where
 
-import qualified Data.Map.Strict  as M
-import qualified Data.Text        as Tx
-import qualified Data.Text.IO     as TxIO
-import Control.Monad.IO.Class
-import Control.Monad.Trans
-import Control.Monad.Trans.State.Strict
-import Control.Lens
-import Data.Conduit
--- import Data.Extensible
-import Org.Parse.Text
-import Org.Conduit              (documentSource, documentConduit)
+import qualified Data.Map.Strict        as M
+import qualified Data.Text              as Tx
+import qualified Data.Text.IO           as TxIO
+import           Control.Monad.IO.Class
+import           Control.Monad.Trans
+import           Control.Monad.Trans.State.Strict
+import           Control.Lens
+import           Data.Conduit
+import           Org.Parse.Text
+import           Org.Conduit            (documentSource, documentConduit)
 
 type ConduitMapState = StateT (M.Map Int Int) (ConduitT Title Void IO)
 

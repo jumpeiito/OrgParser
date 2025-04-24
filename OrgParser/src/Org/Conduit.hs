@@ -20,6 +20,7 @@ import qualified Data.Map.Strict            as Map
 import           Data.Conduit
 import           Data.Conduit.List          (sourceList, consume)
 import qualified Data.Conduit.List          as CL
+import qualified Data.Conduit.Combinators   as CC
 import           Control.Lens               hiding ((:>), noneOf)
 import           System.Environment         (getEnv)
 import           System.Directory           (getDirectoryContents)
@@ -168,7 +169,7 @@ normalConduit :: ConduitT Tx.Text Title IO ()
 normalConduit = do
   titleConduit
   .| nodeConduit
-  .| titleBackConduit
+    .| titleBackConduit
 
 selectTitleConduit :: ConduitT (Node Title, Node Title) SelectType IO ()
 selectTitleConduit = do
