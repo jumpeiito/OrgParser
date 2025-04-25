@@ -40,7 +40,7 @@ import           Text.Megaparsec.Char
 import           Org.Parse.Utility
 
 data TimestampType = Normal | Scheduled | Deadline | Closed
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 type Timestamp = Record
   [ "begin"    :> UTCTime

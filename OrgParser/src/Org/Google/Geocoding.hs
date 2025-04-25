@@ -99,11 +99,18 @@ toPlacemarks gmap cfg = do
   let addresses = Map.toList gmap
   ps <- (`runReaderT` cfg) $
     forM addresses $ \(location, titles) -> do
-      g <- geocode location
-      let desc = titleLabels titles
-      if (geometry g == (0.0, 0.0)) || (length titles /= 1)
-        then return Nothing
-        else return $ Just $ P desc location (geometry g)
+      case titles of
+        [t] -> do
+          g <- geocode location
+          let geo   = geometry g
+          if (geo == (0.0, 0.0))
+            then return Nothing
+            else return $ Just $ P (t ^. #label)
+                                   location
+                                   geo
+                                   (P.getFirstTime t)
+        [] -> return Nothing
+        _:_ -> return Nothing
   return $ catMaybes ps
 
 makeKmlFile :: IO ()

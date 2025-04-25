@@ -76,8 +76,8 @@ addCounter level' = do
 documentSink :: ConduitT Title Void IO ()
 documentSink = do
   liftIO $ putStrLn "- [0, \"労働安全・労働条件改善、アスベスト問題解決をすすめる運動\", \"\"]"
-  _ <- loop `runStateT` M.empty
-  return ()
+  loop `evalStateT` M.empty
+  -- return ()
     where
       loop :: ConduitMapState ()
       loop = do

@@ -9,23 +9,30 @@ module Org.Google.Kml
 where
 
 import           Text.XML
-import qualified Data.Text       as Tx
-import qualified Data.Map.Strict as Map
+import qualified Data.Text              as Tx
+import qualified Data.Map.Strict        as Map
 import           Data.Tagged
 import           Data.Proxy
+import           Data.Time
+import           Data.List              (sort)
+import           Data.Function          (on)
 
 type Text = Tx.Text
 
 data PlaceMark = P
   { name        :: Text
   , description :: Text
-  , point       :: (Float, Float) }
-  deriving (Show)
+  , point       :: (Float, Float)
+  , planTime    :: Maybe UTCTime }
+  deriving (Show, Eq)
 
 data Folder = F
   { folderName   :: Text
   , nodeElements :: [PlaceMark]
   , selectType   :: Bool }
+
+instance Ord PlaceMark where
+  compare = compare `on` planTime
 
 pointText :: PlaceMark -> Text
 pointText p =
@@ -67,7 +74,9 @@ toElement isTrue p =
       if isTrue
       then ["styleUrl" `makeNode` [NodeContent "#icon-1899-FFEA00-labelson"]]
       else mempty
-    elements = elementsDefault (pointElement p) (nameElement p) (descriptionElement p)
+    elements = elementsDefault (pointElement p)
+                               (nameElement p)
+                               (descriptionElement p)
                <> elementsOption
   in
     (Proxy `tagWith`) $ Element "Placemark" mempty elements
@@ -107,5 +116,5 @@ kml pts pfs = Element "kml" attr [document]
     attr     = Map.insert "xmlns" "http://www.opengis.net/kml/2.2" mempty
     document = "Document" `makeNode` [iconStyleNode, name', folder1, folder2]
     name'    = "name"     `makeNode` [NodeContent "test"]
-    folder1  = folderToElements $ F "layer1" pts True
-    folder2  = folderToElements $ F "layer2" pfs False
+    folder1  = folderToElements $ F "layer1" (sort pts) True
+    folder2  = folderToElements $ F "layer2" (sort pfs) False

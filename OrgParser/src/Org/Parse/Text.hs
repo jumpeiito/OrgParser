@@ -17,6 +17,7 @@ module Org.Parse.Text
   , mplusOther
   , lineParse
   , searchQuery
+  , getFirstTime
   ----------
   , GeocodeSearch (..)
   , todoP
@@ -33,10 +34,11 @@ where
 
 import           Control.Monad          (guard)
 import           Control.Lens           hiding ((:>), noneOf)
-import           Data.List              (intercalate)
+import           Data.List              (intercalate, sort)
+import           Data.Time              (UTCTime)
 import qualified Data.Text              as Tx
 import           Data.Maybe             (fromMaybe, maybeToList, isJust
-                                        , isNothing)
+                                        , isNothing, listToMaybe)
 import           Data.Extensible
 import           Org.Parse.Utility
 import           Org.Parse.Time
@@ -241,6 +243,12 @@ lineParse = LO defOther `option` (ll <|> lp <|> lb <|> lo)
     lo = LO <$> try otherRefineP
 {-# INLINE lineParse #-}
 
+aliveTimes :: Title -> [Timestamp]
+aliveTimes ttl = filter notCloseAndActive $ ttl ^. #timestamps
+  where
+    notCloseAndActive timestamp =
+      (timestamp ^. #datetype /= Closed) && (timestamp ^. #active)
+
 instance Nodeable Title where
   isNext t1 t2 = LEQ t1 == LEQ t2
   final paths ttl =
@@ -248,10 +256,7 @@ instance Nodeable Title where
       ttl & #path .~ pathText
   scrapFilter ttl =
     let
-      hasAliveTime = any notCloseAndActive timestamps
-      timestamps   = ttl ^. #timestamps
-      notCloseAndActive timestamp =
-        (timestamp ^. #datetype /= Closed) && (timestamp ^. #active)
+      hasAliveTime = not $ null $ aliveTimes ttl
       notTODO = isNothing $ ttl ^. #todo
     in
       hasAliveTime && notTODO
@@ -259,3 +264,6 @@ instance Nodeable Title where
 searchQuery :: GeocodeSearch -> Text
 searchQuery (GeS _ (Just y)) = y
 searchQuery (GeS x _) = x
+
+getFirstTime :: Title -> Maybe UTCTime
+getFirstTime = fmap (^. #begin) . listToMaybe . sort . aliveTimes
