@@ -20,11 +20,13 @@ import           Data.Time
 import           Data.Aeson
 import           Data.Aeson.Types
 import           Data.Maybe                  (fromJust, isJust)
+import qualified Data.Vector                 as V
+import qualified Data.Set                    as S
 import           Data.String.Conversions     (convertString)
 import           Control.Monad               (forM_)
 import           Control.Monad.State
 import           Network.HTTP.Req
-import           Org.Conduit                 (forICS)
+import           Org.Conduit                 (forICS, forICSVector)
 import           Org.Google.Client           (App, Client (..)
                                              , appCoreCalendar)
 import           Org.GoogleCalendar.Event
@@ -38,7 +40,7 @@ data CalendarEventEqual = CeeAlmost CalendarEvent
                         deriving (Eq)
 
 data CalendarResponse =
-  CalendarResponse [CalendarEvent] (Maybe Text)
+  CalendarResponse (V.Vector CalendarEvent) (Maybe Text)
   deriving (Show)
 
 data Calendar = Calendar { calendarID  :: Text
@@ -107,8 +109,17 @@ getGoogleCalendarList cal = sort <$> loop Nothing []
     loop pageToken ret = do
       CalendarResponse events np <- getGoogleCalendarPage pageToken cal
       case np of
-        Just _  -> loop np (ret ++ events)
-        Nothing -> return (ret ++ events)
+        Just _  -> loop np (ret ++ V.toList (events))
+        Nothing -> return (ret ++ V.toList (events))
+
+getGoogleCalendarVector :: Calendar -> App (V.Vector CalendarEvent)
+getGoogleCalendarVector cal = loop Nothing V.empty
+  where
+    loop pageToken ret = do
+      CalendarResponse events np <- getGoogleCalendarPage pageToken cal
+      case np of
+        Just _  -> loop np (ret V.++ events)
+        Nothing -> return (ret V.++ events)
 
 getGoogleCalendarPage :: Maybe Text -> Calendar -> App CalendarResponse
 getGoogleCalendarPage nextToken cal = do
@@ -128,46 +139,63 @@ getGoogleCalendarPage nextToken cal = do
                              <> pToken nextToken
         query           = foldMap (uncurry (=:)) options
 
+-- diffCalendarEvent ::
+--   [CalendarEvent] ->    -- Org Events
+--   [CalendarEvent] ->    -- Google Calendar Events
+--   [CalendarEventEqual]  -- Org Events that Gcal doesn't have
 diffCalendarEvent ::
-  [CalendarEvent] ->    -- Org Events
-  [CalendarEvent] ->    -- Google Calendar Events
-  [CalendarEventEqual]  -- Org Events that Gcal doesn't have
-diffCalendarEvent orgEv gcalEv = map judge orgEv
+  V.Vector CalendarEvent   ->
+  S.Set AlmostEqual        ->
+  S.Set EdibleEqual        ->
+  V.Vector CalendarEvent   ->
+  V.Vector CalendarEventEqual
+diffCalendarEvent orgEv almostSet edibleSet gcalEV = V.map judge orgEv
   where
-    almost = map Almost gcalEv
-    edible = map Edible gcalEv
     judge ev
-      | Almost ev `elem` almost = CeeAlmost ev
-      | Edible ev `elem` edible =
-          let
-            k = Edible ev `elemIndex` edible
-          in
-            CeeEdible ev (gcalEv !! fromJust k)
+      | Almost ev `S.member` almostSet = CeeAlmost ev
+      | Edible ev `S.member` edibleSet =
+        let k = ev `V.elemIndex` gcalEV in
+          CeeEdible ev (gcalEV V.! fromJust k)
       | otherwise = CeeNot ev
+    -- almost = V.map Almost gcalEv
+    -- edible = V.map Edible gcalEv
+    -- judge ev
+    --   | Almost ev `V.elem` almost = CeeAlmost ev
+    --   | Edible ev `V.elem` edible =
+    --       let
+    --         k = Edible ev `V.elemIndex` edible
+    --       in
+    --         CeeEdible ev (gcalEv V.! fromJust k)
+    --   | otherwise = CeeNot ev
 
+-- diffVerseCalendarEvent ::
+--   [CalendarEvent] -> -- Org Events
+--   [CalendarEvent] -> -- Google Calendar Events
+--   [CalendarEvent]    -- Google events that Org doesn't have
 diffVerseCalendarEvent ::
-  [CalendarEvent] -> -- Org Events
-  [CalendarEvent] -> -- Google Calendar Events
-  [CalendarEvent]    -- Google events that Org doesn't have
-diffVerseCalendarEvent orgEV = filter judge
+  S.Set AlmostEqual ->
+  V.Vector CalendarEvent ->
+  V.Vector CalendarEvent
+diffVerseCalendarEvent orgSet = V.filter judge
   where
-    almost = map Almost orgEV
     judge ev
-      | Almost ev `elem` almost = False
+      | Almost ev `S.member` orgSet = False
       | eventColorID ev == Just "11" = False -- Already Colored Events excepts
       | otherwise = True
 
 updateGoogleCalendar :: Calendar -> IO ()
 updateGoogleCalendar cal = do
   Encoding.setLocaleEncoding Encoding.utf8
-  -- apair <- accessTokenPair
   appCore <- appCoreCalendar
   (`evalStateT` appCore) $ do
-    gcalList <- getGoogleCalendarList cal
-    allev    <- liftIO forICS
-    let events    = filter (filterEvent cal) allev
-    let diffs     = diffCalendarEvent events gcalList
-    let diffVerse = diffVerseCalendarEvent events gcalList
+    gcalList <- getGoogleCalendarVector cal
+    allev    <- liftIO forICSVector
+    let events    = V.filter (filterEvent cal) allev
+    let almostSet = S.fromList $ V.toList $ V.map Almost gcalList
+    let edibleSet = S.fromList $ V.toList $ V.map Edible gcalList
+    let almostOrg = S.fromList $ V.toList $ V.map Almost events
+    let diffs     = diffCalendarEvent events almostSet edibleSet gcalList
+    let diffVerse = diffVerseCalendarEvent almostOrg gcalList
     -- forM_ (filter isEdible diffs) $ \(CeeEdible c1 c2) -> do
     --   liftIO $ print (CeeEdible c1 c2)
     --   liftIO $ print $ _makeCeeMatcher (CeeEdible c1 c2)
@@ -177,17 +205,17 @@ updateGoogleCalendar cal = do
     newEventsInsert cal diffs
     verseColored cal diffVerse
 
-edibleEventsReplace :: Calendar -> [CalendarEventEqual] -> App ()
+edibleEventsReplace :: Calendar -> (V.Vector CalendarEventEqual) -> App ()
 edibleEventsReplace cal events =
-  forM_ (filter isEdible events) $ replaceEvent cal
+  forM_ (V.filter isEdible events) $ replaceEvent cal
 
-newEventsInsert :: Calendar -> [CalendarEventEqual] -> App ()
+newEventsInsert :: Calendar -> (V.Vector CalendarEventEqual) -> App ()
 newEventsInsert cal events =
-  forM_ (filter isCeeNot events) $ \case
+  forM_ (V.filter isCeeNot events) $ \case
      CeeNot s -> insertEvent cal s
      _        -> return ()
 
-verseColored :: Calendar -> [CalendarEvent] -> App ()
+verseColored :: Calendar -> (V.Vector CalendarEvent) -> App ()
 verseColored cal = mapM_ eventColored
   where
     newEV ev = ev { eventColorID = Just "11" } -- Tomato

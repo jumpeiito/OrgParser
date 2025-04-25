@@ -17,6 +17,17 @@ module Org.Parse.Text
   , mplusOther
   , lineParse
   , searchQuery
+  ----------
+  , GeocodeSearch (..)
+  , todoP
+  , tagsP
+  , orgstarsP
+  , indicateP
+  , titleP
+  , propertyP
+  , linkP
+  , geocodeP
+  , otherRefineP
   )
 where
 

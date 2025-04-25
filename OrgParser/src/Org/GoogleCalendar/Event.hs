@@ -51,9 +51,9 @@ data CalendarEvent =
   deriving (Eq)
 
 newtype EdibleEqual = Edible { runEdible :: CalendarEvent }
-  deriving (Show)
+  deriving (Show, Ord)
 newtype AlmostEqual = Almost { runAlmost :: CalendarEvent }
-  deriving (Show)
+  deriving (Show, Ord)
 newtype ColorEvent = ColEV { runColEV :: CalendarEvent }
 
 instance Eq EdibleEqual where

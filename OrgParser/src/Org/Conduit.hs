@@ -3,6 +3,7 @@
 module Org.Conduit
   (
     forICS
+  , forICSVector
   , forGeocode
   , documentSource
   , normalConduit
@@ -21,12 +22,13 @@ import           Data.Conduit
 import           Data.Conduit.List          (sourceList, consume)
 import qualified Data.Conduit.List          as CL
 import qualified Data.Conduit.Combinators   as CC
-import           Control.Lens               hiding ((:>), noneOf)
-import           System.Environment         (getEnv)
-import           System.Directory           (getDirectoryContents)
 import qualified Data.List                  as Dl
 import qualified Data.Text                  as Tx
 import qualified Data.Text.IO               as TxIO
+import qualified Data.Vector                as V
+import           Control.Lens               hiding ((:>), noneOf)
+import           System.Environment         (getEnv)
+import           System.Directory           (getDirectoryContents)
 import qualified GHC.IO.Encoding            as Encoding
 -- import           Org.ParseText
 import           Org.Parse.Time
@@ -186,6 +188,13 @@ eventSink = do
   let makeEvent title = map (`toEvent` title) $ title ^. #timestamps
   return $ concatMap makeEvent titles
 
+eventSinkVector :: ConduitT Title Void IO (V.Vector CalendarEvent)
+eventSinkVector = do
+  titles <- CC.sinkVector
+  let timestampsV title = V.fromList $ title ^. #timestamps
+  let makeEvent title = V.map (`toEvent` title) $ timestampsV title
+  return $ V.concatMap makeEvent titles
+
 locationSink :: ConduitT Title Void IO GeocodeMap
 locationSink = CL.fold mapInsert Map.empty
   where
@@ -200,6 +209,8 @@ locationSink = CL.fold mapInsert Map.empty
 forICS :: IO [CalendarEvent]
 forICS = runConduit (orgSource .| normalConduit .| eventSink)
 
+forICSVector :: IO (V.Vector CalendarEvent)
+forICSVector = runConduit (orgSource .| normalConduit .| eventSinkVector)
 
 forGeocode :: (Title -> Bool) -> IO (GeocodeMap, GeocodeMap)
 forGeocode f = do

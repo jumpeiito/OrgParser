@@ -75,6 +75,7 @@ executable OrgParser
                      , aeson
                      , optparse-applicative
                      , text-builder
+                     , vector
   default-language:    Haskell2010
   ghc-options:         -Wall
                        -Wcompat
@@ -94,8 +95,9 @@ test-suite OrgParser-test
   hs-source-dirs:      test
   main-is:             Spec.hs
   other-modules:       Data.String.StripSpec
-                     , Org.ParseSpec
                      , Org.NodeSpec
+                     , Org.Parse.TextSpec
+                     , Org.Parse.TimeSpec
   build-depends:       base
                      , OrgParser
                      , hspec
@@ -108,6 +110,9 @@ test-suite OrgParser-test
                      , aeson
                      , tagged
                      , megaparsec
+                     , lens
+                     , extensible
+                     , text
                      -- , req
   default-language:   Haskell2010
   ghc-options:         -Wall
