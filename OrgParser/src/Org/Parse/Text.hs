@@ -12,6 +12,8 @@ module Org.Parse.Text
   , Other
   , Geocode (..)
   , LevelEQTitle (..)
+  , TitleBuilder (..)
+  , BuilderType
   , defTitle
   , defOther
   , mplusOther
@@ -36,45 +38,48 @@ import           Control.Monad          (guard)
 import           Control.Lens           hiding ((:>), noneOf)
 import           Data.List              (intercalate, sort)
 import           Data.Time              (UTCTime)
+import           Data.String            (IsString)
 import qualified Data.Text              as Tx
+-- import qualified Data.Text.Lazy.Builder as TxLB
 import           Data.Maybe             (fromMaybe, maybeToList, isJust
                                         , isNothing, listToMaybe)
 import           Data.Extensible
 import           Org.Parse.Utility
 import           Org.Parse.Time
 import           Org.Node
+import qualified TextBuilder            as TXB
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 
-data Line = LL Title
-          | LP (Text, Text)
-          | LB
-          | LO Other
-          deriving (Show, Eq)
+data Line text = LL (Title text)
+               | LP (Text, Text)
+               | LB
+               | LO (Other text)
+               deriving (Show, Eq)
 
-type Title = Record
+type Title text = Record
   [ "label"      :> Text
   , "level"      :> Int
   , "todo"       :> Maybe Text
   , "tags"       :> [Text]
   , "timestamps" :> [Timestamp]
-  , "paragraph"  :> Text
+  , "paragraph"  :> text
   , "properties" :> [(Text, Text)]
   , "location"   :> (Text, [GeocodeSearch])
   , "path"       :> Text ]
 
-type Other = Record
+type Other text = Record
   [ "timestamps" :> [Timestamp]
-  , "others"     :> Text
+  , "others"     :> text
   , "geocode"    :> [GeocodeSearch]]
 
-data LineBreak       = LineBreak
-data GeocodeSearch   = GeS Text (Maybe Text) deriving (Eq, Show)
-newtype Link         = Link (Text, Maybe Text) deriving Show
-newtype LevelEQTitle = LEQ Title
-newtype Geocode      = Geo Title
+data LineBreak            = LineBreak
+data GeocodeSearch        = GeS Text (Maybe Text) deriving (Eq, Show)
+newtype Link              = Link (Text, Maybe Text) deriving Show
+newtype LevelEQTitle text = LEQ (Title text)
+newtype Geocode text      = Geo (Title text)
 
-instance Show Geocode where
+instance Show (Geocode text) where
   show (Geo t) =
     let
       normalActive stamp =
@@ -84,10 +89,10 @@ instance Show Geocode where
       (Tx.unpack (t ^. #label)) ++ "(" ++
       intercalate "・" (map (show . GU . (^. #begin)) ts) ++ ")"
 
-instance Eq LevelEQTitle where
+instance Eq (LevelEQTitle text) where
   (LEQ t1) == (LEQ t2) = t1 ^. #level == t2 ^. #level
 
-defTitle :: Title
+defTitle :: Monoid text => (Title text)
 defTitle = #label         @= mempty
            <: #level      @= 0
            <: #todo       @= Nothing
@@ -99,13 +104,13 @@ defTitle = #label         @= mempty
            <: #path       @= mempty
            <: nil
 
-defOther :: Other
+defOther :: Monoid text => (Other text)
 defOther = #timestamps @= mempty
            <: #others  @= mempty
            <: #geocode @= mempty
            <: nil
 
-mplusOther :: Other -> Title -> Title
+mplusOther :: Monoid text => (Other text) -> (Title text) -> (Title text)
 mplusOther o t =
   let
     othersRefine = (^. #others)
@@ -146,7 +151,7 @@ titleAttachment = do
   guard $ isJust ts || not (null tg)
   return (ts, tg)
 
-titleP :: Parser Title
+titleP :: Monoid text => Parser (Title text)
 titleP = do
   stars  <- orgstarsP
   todo   <- todoP
@@ -177,16 +182,16 @@ propertyP =
     pname = between (single ':') (single ':') pnameCore
     pval  = Tx.pack <$> ((:) <$> satisfy (/= ' ') <*> many anySingle)
 
-linkP :: Parser Text
+linkP :: TitleBuilder text => Parser text
 linkP = between (chunk "[[") (chunk "]]") linkCore
   where
-    linkToken = Tx.pack <$> some (noneOf [']'])
+    linkToken = fromToken <$> some (noneOf [']'])
     linkCore  = do
       url  <- linkToken
-      guard $ "http" `Tx.isPrefixOf` url
+      guard $ "http" `builderIsPrefixOf` url
       expr <- Nothing `option` (chunk "][" >> Just <$> linkToken)
-      return $ Tx.concat ["<a href=\"", url, "\">"
-                         , url `fromMaybe` expr, "</a>"]
+      return $ builderConcat ["<a href=\"", url, "\">"
+                             , url `fromMaybe` expr, "</a>"]
 
 geocodeP :: Parser GeocodeSearch
 geocodeP = between (chunk "{{") (chunk "}}") geocodeCore
@@ -203,12 +208,12 @@ linebreakP = chunk "# linebreak" >> return LineBreak
 -- ((someTill (single ' ') (lookAhead (single ':')) >> (single ':')) :: Parser (Token Tx.Text)) `parseTest` Tx.pack "   :"
 -- >>> ':'
 
-otherRefineP :: Parser Other
+otherRefineP :: TitleBuilder text => Parser (Other text)
 otherRefineP = def `option` (loop def <|> literalOnly def)
   where
     def = defOther
     spaces = many (single ' ')
-    loop :: Other -> Parser Other
+    loop :: TitleBuilder text => (Other text) -> Parser (Other text)
     loop o = anyP [ eof' o
                   , timestamp' o
                   , link' o
@@ -228,13 +233,13 @@ otherRefineP = def `option` (loop def <|> literalOnly def)
       let end'  = lookAhead (timestamp' oth <|> link' oth <|> geocode' oth)
       let withP = manyTill anySingle end'
       other <- try withP <|> some anySingle
-      loop (oth & #others %~ (<> Tx.pack other))
+      loop (oth & #others %~ (<> fromToken other))
     literalOnly oth = do
       lo <- manyTill anySingle eof
-      loop (oth & #others %~ (<> Tx.pack lo))
+      loop (oth & #others %~ (<> fromToken lo))
 {-# INLINE otherRefineP #-}
 
-lineParse :: Parser Line
+lineParse :: TitleBuilder text => Parser (Line text)
 lineParse = LO defOther `option` (ll <|> lp <|> lb <|> lo)
   where
     ll = LL <$> try titleP
@@ -243,13 +248,13 @@ lineParse = LO defOther `option` (ll <|> lp <|> lb <|> lo)
     lo = LO <$> try otherRefineP
 {-# INLINE lineParse #-}
 
-aliveTimes :: Title -> [Timestamp]
+aliveTimes :: Title text -> [Timestamp]
 aliveTimes ttl = filter notCloseAndActive $ ttl ^. #timestamps
   where
     notCloseAndActive timestamp =
       (timestamp ^. #datetype /= Closed) && (timestamp ^. #active)
 
-instance Nodeable Title where
+instance Nodeable (Title text) where
   isNext t1 t2 = LEQ t1 == LEQ t2
   final paths ttl =
     let pathText = (Tx.intercalate "/" $ map (^. #label) paths) in
@@ -265,5 +270,30 @@ searchQuery :: GeocodeSearch -> Text
 searchQuery (GeS _ (Just y)) = y
 searchQuery (GeS x _) = x
 
-getFirstTime :: Title -> Maybe UTCTime
+getFirstTime :: Title text -> Maybe UTCTime
 getFirstTime = fmap (^. #begin) . listToMaybe . sort . aliveTimes
+
+class (Semigroup a, Monoid a, IsString a) => TitleBuilder a where
+  fromToken         :: String -> a
+  toText            :: a -> Tx.Text
+  builderIsPrefixOf :: a -> a -> Bool
+  builderConcat     :: [a] -> a
+  builderIsPrefixOf tb1 tb2 = toText tb1 `Tx.isPrefixOf` toText tb2
+  builderConcat = foldr (<>) mempty
+
+instance TitleBuilder Tx.Text where
+  fromToken         = Tx.pack
+  builderIsPrefixOf = Tx.isPrefixOf
+  builderConcat     = Tx.concat
+  toText            = id
+
+instance TitleBuilder String where
+  fromToken = id
+  toText = Tx.pack
+
+instance TitleBuilder TXB.TextBuilder where
+  fromToken = TXB.string
+  toText = TXB.toText
+
+-- type TB = TXB.TextBuilder
+type BuilderType = Tx.Text

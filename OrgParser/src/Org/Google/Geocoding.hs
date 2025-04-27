@@ -83,7 +83,10 @@ geocode address = do
   runReq defaultHttpConfig $ do
     let query = "key" =: key <> "address" =: address
     res <- req GET url NoReqBody jsonResponse query
-    return $ responseBody res
+    let gcode = responseBody res
+    let gpoint = Tx.justifyLeft 25 ' ' $ Tx.pack $ show $ geometry gcode
+    liftIO $ TxIO.putStrLn $ Tx.concat [ gpoint , " <-- " , address]
+    return gcode
 
 geocodeWriteFile :: Document -> IO ()
 geocodeWriteFile docs = do
@@ -91,10 +94,7 @@ geocodeWriteFile docs = do
   let file = orgDir ++ "/" ++ "map.kml"
   TxIO.writeFile file $ convertString $ renderText def docs
 
-titleLabels :: [P.Title] -> Tx.Text
-titleLabels = Tx.intercalate " " . map (Tx.pack . show . P.Geo)
-
-toPlacemarks :: GeocodeMap -> Config -> IO [PlaceMark]
+toPlacemarks :: GeocodeMap text -> Config -> IO [PlaceMark]
 toPlacemarks gmap cfg = do
   let addresses = Map.toList gmap
   ps <- (`runReaderT` cfg) $
@@ -102,7 +102,7 @@ toPlacemarks gmap cfg = do
       case titles of
         [t] -> do
           g <- geocode location
-          let geo   = geometry g
+          let geo = geometry g
           if (geo == (0.0, 0.0))
             then return Nothing
             else return $ Just $ P (t ^. #label)
@@ -117,6 +117,7 @@ makeKmlFile :: IO ()
 makeKmlFile = do
   let f t = (t ^. #label == "島根旅行") && (t ^. #level == 3)
   (trueM, falseM) <- forGeocode f
+                      :: IO (GeocodeMap P.BuilderType, GeocodeMap P.BuilderType)
   pts <- toPlacemarks trueM config
   pfs <- toPlacemarks falseM config
   geocodeWriteFile $ toDocument pts pfs

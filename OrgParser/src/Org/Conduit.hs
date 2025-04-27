@@ -6,6 +6,7 @@ module Org.Conduit
   , forICSVector
   , forGeocode
   , documentSource
+  , documentProducer
   , normalConduit
   , documentConduit
   , GeocodeMap
@@ -37,16 +38,16 @@ import           Org.Node                   (Node (..), Nodeable (..))
 import           Org.GoogleCalendar.Event   (CalendarEvent (..)
                                             , eventDefault)
 ------------------------------------------------------------
-type GeocodeMap = Map.Map Tx.Text [Title]
+type GeocodeMap text = Map.Map Tx.Text [Title text]
 
-data SelectType = SelectTrue Title | SelectFalse Title
+data SelectType text = SelectTrue (Title text) | SelectFalse (Title text)
   deriving (Show, Eq)
 
-isSelectTrue :: SelectType -> Bool
+isSelectTrue :: SelectType text -> Bool
 isSelectTrue (SelectTrue _) = True
 isSelectTrue _ = False
 
-runSelectType :: SelectType -> Title
+runSelectType :: SelectType text -> (Title text)
 runSelectType (SelectTrue s) = s
 runSelectType (SelectFalse s) = s
 
@@ -87,20 +88,24 @@ documentSource :: FilePath -> ConduitT () Tx.Text IO ()
 documentSource document = liftIO (fileLines document)
                           >>= mapM_ yield
 
-geocodeProducer :: (Title -> Bool) -> ConduitT () SelectType IO ()
+geocodeProducer :: TitleBuilder text =>
+  ((Title text) -> Bool) -> ConduitT () (SelectType text) IO ()
 geocodeProducer f = orgSource
                     .| titleConduit
                     .| selectConduit f
                     .| selectTitleConduit
 ------------------------------------------------------------
-titleConduit :: ConduitT Tx.Text Title IO ()
+titleConduit ::
+  TitleBuilder text => ConduitT Tx.Text (Title text) IO ()
 titleConduit = do
   lastTitle <- loop Nothing
   case lastTitle of
     Just lt -> yield lt
     Nothing -> return ()
   where
-    loop :: Maybe Title -> ConduitT Tx.Text Title IO (Maybe Title)
+    loop :: TitleBuilder text =>
+            Maybe (Title text) ->
+            ConduitT Tx.Text (Title text) IO (Maybe (Title text))
     loop current = do
       stream <- await
       case stream of
@@ -112,7 +117,7 @@ titleConduit = do
             (Nothing, _)            -> loop current
             (Just c, Right (LL t))  -> do { yield c; loop (Just t) }
             (Just c, Right LB) ->
-              loop $ Just (c & #paragraph %~ (<> "\\r\\n\n"))
+              loop $ Just (c & #paragraph %~ (<> fromToken "\\r\\n\n"))
             (Just c, Right (LP ("LOCATION", l))) -> do
               loop $ Just (c & #location .~ (l, mempty))
             (Just c, Right (LP ("PROPERTIES", _))) -> do
@@ -124,7 +129,7 @@ titleConduit = do
             (Just c, Right (LO o)) -> do
               loop $ Just (o `mplusOther` c)
 
-nodeConduitGenerator :: (Node Title -> b) -> ConduitT Title b IO ()
+nodeConduitGenerator :: (Node (Title a) -> b) -> ConduitT (Title a) b IO ()
 nodeConduitGenerator nodeModify = do
   nodeTree <- loop None
   yield (nodeModify nodeTree)
@@ -135,45 +140,50 @@ nodeConduitGenerator nodeModify = do
         Nothing    -> return current
         Just title -> loop $ build title current
 
-nodeConduit :: ConduitT Title (Node Title) IO ()
+nodeConduit :: ConduitT (Title a) (Node (Title a)) IO ()
 nodeConduit = nodeConduitGenerator (cut f)
   where
     f ttl = (ttl ^. #label == "プログラムメモ") && (ttl ^. #level == 2)
 
-_pickConduit :: (Title -> Bool) -> ConduitT Title (Node Title) IO ()
-_pickConduit f = nodeConduitGenerator (pick f)
+-- _pickConduit :: TitleBuilder text =>
+--   (Title -> Bool) -> ConduitT (Title text) (Node (Title text)) IO ()
+-- _pickConduit f = nodeConduitGenerator (pick f)
 
-selectConduit :: (Title -> Bool)
-  -> ConduitT Title (Node Title, Node Title) IO ()
+selectConduit :: ((Title a) -> Bool)
+  -> ConduitT (Title a) (Node (Title a), Node (Title a)) IO ()
 selectConduit f = nodeConduitGenerator (select f)
 
-titleBackConduit :: ConduitT (Node Title) Title IO ()
+titleBackConduit :: ConduitT (Node (Title a)) (Title a) IO ()
 titleBackConduit = do
   node <- await
   case node of
     Just n  -> sourceList $ scrap n
     Nothing -> return ()
 
-titleBackAllConduit :: ConduitT (Node Title) Title IO ()
+titleBackAllConduit :: ConduitT (Node (Title a)) (Title a) IO ()
 titleBackAllConduit = do
   node <- await
   case node of
     Just n  -> sourceList $ scrapAll n
     Nothing -> return ()
 
-documentConduit :: ConduitT Tx.Text Title IO ()
+documentConduit :: TitleBuilder text => ConduitT Tx.Text (Title text) IO ()
 documentConduit = do
   titleConduit
   .| nodeConduit
   .| titleBackAllConduit
 
-normalConduit :: ConduitT Tx.Text Title IO ()
+documentProducer :: TitleBuilder text => FilePath -> ConduitT () (Title text) IO ()
+documentProducer fp = documentSource fp .| documentConduit
+
+normalConduit :: TitleBuilder text => ConduitT Tx.Text (Title text) IO ()
 normalConduit = do
   titleConduit
-  .| nodeConduit
+    .| nodeConduit
     .| titleBackConduit
 
-selectTitleConduit :: ConduitT (Node Title, Node Title) SelectType IO ()
+selectTitleConduit ::
+  ConduitT (Node (Title a), Node (Title a)) (SelectType a) IO ()
 selectTitleConduit = do
   s <- await
   case s of
@@ -182,20 +192,21 @@ selectTitleConduit = do
       let toSource f = sourceList . map f . scrap
       toSource SelectTrue strue <> toSource SelectFalse sfalse
 ------------------------------------------------------------
-eventSink :: ConduitT Title Void IO [CalendarEvent]
+eventSink :: TitleBuilder text => ConduitT (Title text) Void IO [CalendarEvent]
 eventSink = do
   titles <- consume
   let makeEvent title = map (`toEvent` title) $ title ^. #timestamps
   return $ concatMap makeEvent titles
 
-eventSinkVector :: ConduitT Title Void IO (V.Vector CalendarEvent)
+eventSinkVector :: TitleBuilder text =>
+  ConduitT (Title text) Void IO (V.Vector CalendarEvent)
 eventSinkVector = do
   titles <- CC.sinkVector
   let timestampsV title = V.fromList $ title ^. #timestamps
   let makeEvent title = V.map (`toEvent` title) $ timestampsV title
   return $ V.concatMap makeEvent titles
 
-locationSink :: ConduitT Title Void IO GeocodeMap
+locationSink :: ConduitT (Title a) Void IO (GeocodeMap a)
 locationSink = CL.fold mapInsert Map.empty
   where
     mapInsert m t =
@@ -207,12 +218,20 @@ locationSink = CL.fold mapInsert Map.empty
         foldr (\ k m' -> Map.insertWith (<>) k [t] m') m keys
 
 forICS :: IO [CalendarEvent]
-forICS = runConduit (orgSource .| normalConduit .| eventSink)
+forICS = do
+  let sink = (eventSink :: ConduitT (Title BuilderType) Void IO [CalendarEvent])
+  let conduits = orgSource .| normalConduit .| sink
+  runConduit conduits
 
 forICSVector :: IO (V.Vector CalendarEvent)
-forICSVector = runConduit (orgSource .| normalConduit .| eventSinkVector)
+forICSVector = do
+  let sink = (eventSinkVector ::
+                 ConduitT (Title BuilderType) Void IO (V.Vector CalendarEvent))
+  let conduits = orgSource .| normalConduit .| sink
+  runConduit conduits
 
-forGeocode :: (Title -> Bool) -> IO (GeocodeMap, GeocodeMap)
+forGeocode :: TitleBuilder text =>
+  ((Title text) -> Bool) -> IO (GeocodeMap text, GeocodeMap text)
 forGeocode f = do
   let source ss = runConduit (CL.sourceList ss
                               .| CL.map runSelectType
@@ -231,7 +250,8 @@ takeWhile f = do
     Just True -> (:) (fromJust a) <$> takeWhile f
     _         -> return []
 
-toEvent :: Timestamp -> Title -> CalendarEvent
+toEvent :: TitleBuilder text =>
+  Timestamp -> Title text -> CalendarEvent
 toEvent stamp ttl =
   let
     (ttlLocation, _) = ttl ^. #location
@@ -245,23 +265,22 @@ toEvent stamp ttl =
   , eventLocation    = location }
   where
     path' = ttl ^. #path
-    para' = Tx.stripEnd $ ttl ^. #paragraph
+    para' = Tx.stripEnd $ toText $ ttl ^. #paragraph
     ps    = [path' == mempty, para' == mempty]
     sep   = if all not ps then "\n" else ""
     desc  =
       if all id ps
       then Nothing
-      else Just $ foldMap (<>) [path', sep, para'] mempty
+      else Just $ foldMap (<>) [path', fromToken sep, para'] mempty
 
 ---- debug --------------------------------------------------
 _test :: IO ()
 _test = do
-  r <- runConduit (orgSource
-                   .| normalConduit
-                   .| locationSink)
+  let conduits = orgSource .| normalConduit .| locationSink
+  r <- runConduit conduits :: IO (GeocodeMap Tx.Text)
   mapM_ (TxIO.putStrLn . fst) (Map.toList r)
 
-_debugSink :: ConduitT Title Void IO ()
+_debugSink :: ConduitT (Title Tx.Text) Void IO ()
 _debugSink = do
   liftIO $ Encoding.setLocaleEncoding Encoding.utf8
   awaitForever (liftIO . TxIO.putStrLn . debug)
@@ -270,8 +289,8 @@ _debugSink = do
                              , ":"
                              , title ^. #paragraph]
 
-_debugPreTitleSink :: ConduitT Tx.Text Void IO ()
-_debugPreTitleSink = do
-  liftIO $ Encoding.setLocaleEncoding Encoding.utf8
-  awaitForever $ \txt ->
-    liftIO $ print $ parse lineParse "" txt
+-- _debugPreTitleSink :: ConduitT Tx.Text Void IO ()
+-- _debugPreTitleSink = do
+--   liftIO $ Encoding.setLocaleEncoding Encoding.utf8
+--   awaitForever $ \txt ->
+--     liftIO $ print $ parse parser "" txt

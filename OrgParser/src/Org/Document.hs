@@ -1,5 +1,7 @@
-{-# LANGUAGE OverloadedLabels, OverloadedStrings, TypeSynonymInstances #-}
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedLabels     #-}
+{-# LANGUAGE OverloadedStrings    #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleContexts     #-}
 module Org.Document
   (
     documents
@@ -10,16 +12,17 @@ import qualified Data.Map.Strict        as M
 import qualified Data.Text              as Tx
 import qualified Data.Text.IO           as TxIO
 import           Control.Monad.IO.Class
-import           Control.Monad.Trans
 import           Control.Monad.Trans.State.Strict
 import           Control.Lens
 import           Data.Conduit
+import qualified Data.Conduit.List      as CL
 import           Org.Parse.Text
-import           Org.Conduit            (documentSource, documentConduit)
+import           Org.Conduit            (documentProducer)
 
-type ConduitMapState = StateT (M.Map Int Int) (ConduitT Title Void IO)
+type ConduitMapState text final =
+  StateT (M.Map Int Int) (ConduitT (Title text) final IO)
 
-data YamlLine = YL Int Title deriving (Show)
+data YamlLine text = YL Int (Title text) deriving (Show)
 
 jNum, jMaruNum :: M.Map Int Tx.Text
 jNum     = M.fromList [(1, "１"), (2, "２"), (3, "３"), (4, "４"), (5, "５"),
@@ -27,7 +30,7 @@ jNum     = M.fromList [(1, "１"), (2, "２"), (3, "３"), (4, "４"), (5, "５"
 jMaruNum = M.fromList [(1, "①"), (2, "②"), (3, "③"), (4, "④"), (5, "⑤"),
                        (6, "⑥"), (7, "⑦"), (8, "⑧"), (9, "⑨")]
 
-textBuild :: YamlLine -> Tx.Text
+textBuild :: TitleBuilder text => (YamlLine text) -> Tx.Text
 textBuild (YL counter a)
   | a ^. #level == 1 = bracket 1 mempty                 mempty
   | a ^. #level == 2 = bracket 2 (jNum M.! counter)     "．"
@@ -39,18 +42,34 @@ textBuild (YL counter a)
     bracket :: Int -> Tx.Text -> Tx.Text -> Tx.Text
     bracket lv titlen after =
       let
-        postTitle = titlen <> after
+        postTitle = Tx.unpack $ titlen <> after
         comma     = ", "
         quote     = "\""
-        builders  =
-          ["- [", Tx.pack (show lv), comma, quote, postTitle
-          , a ^. #label, quote, comma
-          , a ^. #paragraph, quote, "]"]
+        builderPre = map fromToken
+                     ["- [", show lv, comma, quote, postTitle
+                     , Tx.unpack (a ^. #label), quote, comma]
+        builderPost = map fromToken [quote, "]"]
+        builders = builderPre <> [a ^. #paragraph] <> builderPost
       in
-        foldMap (<>) builders mempty
+        -- foldMap (<>) builders mempty
+        toText $ builderConcat builders
 
-addCounter :: Int -> ConduitMapState Int
+addCounter :: Int -> State (M.Map Int Int) Int
 addCounter level' = do
+  counterMap <- get
+  case level' `M.member` counterMap of
+    False -> do
+      modify (M.insert level' 1)
+      return 1
+    True  -> do
+      let mapKeys = M.keys counterMap
+      let deleted = foldr M.delete counterMap $ filter (> level') mapKeys
+      let current = deleted M.! level'
+      put $ M.insert level' (current + 1) deleted
+      return $ current + 1
+
+addCounterM :: Int -> ConduitMapState text a Int
+addCounterM level' = do
   -- 例えば[(1, 2), (2, 1), (3, 3)]のようなMapをStateとして持っている。
   -- このMapは2番目のレベル1の中の最初のレベル2で,さらにその下の
   -- レベル3は3番目までカウントしたという意味。
@@ -73,24 +92,27 @@ addCounter level' = do
       -- 元のモナドで活用するために, 新しい章番号を返す
       return $ current + 1
 
-documentSink :: ConduitT Title Void IO ()
+documentPrettify :: TitleBuilder text => [Title text] -> [Tx.Text]
+documentPrettify titles = loop titles `evalState` M.empty
+  where
+    loop [] = return []
+    loop (t:ts) = do
+      counter <- addCounter (t ^. #level)
+      let text = textBuild $ YL counter t
+      (:) text <$> loop ts
+
+documentPrettifyConduit :: ConduitT (Title BuilderType) Tx.Text IO ()
+documentPrettifyConduit = do
+  xs <- CL.consume
+  CL.sourceList $ documentPrettify xs
+
+documentSink :: ConduitT Tx.Text Void IO ()
 documentSink = do
-  liftIO $ putStrLn "- [0, \"労働安全・労働条件改善、アスベスト問題解決をすすめる運動\", \"\"]"
-  loop `evalStateT` M.empty
-  -- return ()
-    where
-      loop :: ConduitMapState ()
-      loop = do
-        stream <- lift $ await
-        case stream of
-          Nothing -> return ()
-          Just ttl -> do
-            counter <- addCounter (ttl ^. #level)
-            liftIO $ TxIO.putStrLn $ textBuild $ YL counter ttl
-            loop
+  liftIO $ TxIO.putStrLn "- [0, \"労働安全・労働条件改善、アスベスト問題解決をすすめる運動\", \"\"]"
+  awaitForever (liftIO . TxIO.putStrLn)
 
 documents :: FilePath -> IO ()
 documents filepath =
-  runConduit (documentSource filepath
-               .| documentConduit
+  runConduit (documentProducer filepath
+               .| documentPrettifyConduit
                .| documentSink)

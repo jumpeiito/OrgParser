@@ -3,7 +3,21 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/topics/lock_files
 
-packages: []
+packages:
+- completed:
+    hackage: text-builder-1.0.0.3@sha256:f78ef952a4681710a958d71b5cffd86e21d7aa2067ba7aa068403bec9b2e1901,4586
+    pantry-tree:
+      sha256: 0ae33135a6a85c151ca1cb336ccfce095161a996e66e39696106f5a7d8925d4f
+      size: 991
+  original:
+    hackage: text-builder-1.0.0.3
+- completed:
+    hackage: text-builder-core-0.1.1.1@sha256:402fdf2f2695950643fea299719c3dccc81c797d94bbcaa7d1cbf182e9937afa,2844
+    pantry-tree:
+      sha256: 09208ffab280c3814fd63297e3563a60a073319ca3d77b04aa4b4f54553b9bbb
+      size: 788
+  original:
+    hackage: text-builder-core-0.1.1.1@sha256:402fdf2f2695950643fea299719c3dccc81c797d94bbcaa7d1cbf182e9937afa,2844
 snapshots:
 - completed:
     sha256: 1964d439d2a152be4238053f3f997a09fb348391984daab86d724975ef9a423f

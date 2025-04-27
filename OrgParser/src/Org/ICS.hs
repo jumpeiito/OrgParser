@@ -13,7 +13,7 @@ module Org.ICS
   )
 where
 
-import           Data.List                   (sort, elemIndex)
+import           Data.List                   (sort)
 import           Data.Text                   (Text)
 import           Data.Function               (on)
 import           Data.Time
@@ -26,7 +26,7 @@ import           Data.String.Conversions     (convertString)
 import           Control.Monad               (forM_)
 import           Control.Monad.State
 import           Network.HTTP.Req
-import           Org.Conduit                 (forICS, forICSVector)
+import           Org.Conduit                 (forICSVector)
 import           Org.Google.Client           (App, Client (..)
                                              , appCoreCalendar)
 import           Org.GoogleCalendar.Event
