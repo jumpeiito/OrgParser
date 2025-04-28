@@ -9,19 +9,20 @@ import qualified Data.Text              as Tx
 import qualified Data.Text.IO           as TxIO
 import           Data.Void              (Void)
 import           Data.Monoid
-import           Data.List              (isPrefixOf, lookup, intercalate)
+import           Data.List              (isPrefixOf, intercalate)
 import           Data.List.Split        (chunksOf)
-  
+
 data Sym = Sym String
   deriving (Show, Eq)
 
 data Atom
 data Cons
 
-data Sexp = AS String
-          | AI Int
-          | ASY Sym
-          | L [Sexp]
+data Sexp = AS String -- String
+          | AI Int    -- Int
+          | ASY Sym   -- Symbol
+          | L [Sexp]  -- List
+          | QL [Sexp] -- Quoted List
           deriving (Show, Eq)
 
 type Text   = Tx.Text
@@ -53,43 +54,55 @@ atomSymbol = (ASY . Sym) <$> symbol
   where
     symbol = some (noneOf ['(', ')', '"', ' ', '\n'])
 
+listsep :: Parser [Char]
+listsep = many (oneOf [' ', '\n'])
+
+listInner :: Parser [Sexp]
+listInner = do
+  let selector = [atomStr, atomInt, atomSymbol, slist]
+  listsep >> sepEndBy (choice selector) listsep
+
 slist :: Parser Sexp
 slist = do
-  contents <- sep >> between (single '(') (single ')') inner
+  contents <- listsep >> between (single '(') (single ')') listInner
   return $ L contents
-  where
-    selector = [atomStr, atomInt, atomSymbol, slist]
-    sep = many (oneOf [' ', '\n'])
-    inner = sep >> sepEndBy (choice selector) sep
 
-belongsP :: Sexp -> Sexp -> Maybe Sexp
-belongsP query slist@(L (s:ss))
-  | query == s = Just slist
-  | otherwise = query `belongsP` s
-                <|> getFirst (foldMap First $ map (belongsP query) ss)
-belongsP query _ = Nothing
+qlist :: Parser Sexp -- Quoted List
+qlist = do
+  _ <- listsep >> (chunk "'(")
+  l <- listInner
+  _ <- (single ')')
+  return $ QL l
 
-assoc :: Sexp -> Sexp -> Maybe Sexp
-assoc k@(ASY (Sym kwd)) (L xs)
-  | odd $ length xs            = Nothing
-  | not (":" `isPrefixOf` kwd) = Nothing
-  | otherwise =
-    let assocList = [ (x,y) | [x, y] <- chunksOf 2 xs ] in
-      k `lookup` assocList
-assoc _ _ = Nothing
+-- belongsP :: Sexp -> Sexp -> Maybe Sexp
+-- belongsP query slist@(L (s:ss))
+--   | query == s = Just slist
+--   | otherwise = query `belongsP` s
+--                 <|> getFirst (foldMap First $ map (belongsP query) ss)
+-- belongsP query _ = Nothing
 
-memq :: String -> Sexp -> [Sexp] -> Maybe Sexp
-memq query val ss = getFirst $ foldMap f ss
-  where
-    q = ASY (Sym query)
-    f sexp = case (== val) <$> assoc q sexp of
-               Just True -> First $ Just sexp
-               _         -> First Nothing
+-- assoc :: Sexp -> Sexp -> Maybe Sexp
+-- assoc k@(ASY (Sym kwd)) (L xs)
+--   | odd $ length xs            = Nothing
+--   | not (":" `isPrefixOf` kwd) = Nothing
+--   | otherwise =
+--     let assocList = [ (x,y) | [x, y] <- chunksOf 2 xs ] in
+--       k `lookup` assocList
+-- assoc _ _ = Nothing
 
-test :: IO Sexp
-test = do
-  content <- TxIO.readFile "c:/Users/jumpei/Documents/home/OrgFiles/shibu.lisp"
-  case parse slist "" content of
-    Right s -> return s
-    Left _  -> error ""
+-- memq :: String -> Sexp -> [Sexp] -> Maybe Sexp
+-- memq query val ss = getFirst $ foldMap f ss
+--   where
+--     q = ASY (Sym query)
+--     f sexp = case (== val) <$> assoc q sexp of
+--                Just True -> First $ Just sexp
+--                _         -> First Nothing
+
+-- test :: IO Sexp
+-- test = do
+--   -- content <- TxIO.readFile "c:/Users/jumpei/Documents/home/OrgFiles/shibu.lisp"
+--   content <- TxIO.readFile "e:/OrgFiles/shibu.lisp"
+--   case parse slist "" content of
+--     Right s -> return s
+--     Left _  -> error ""
 
