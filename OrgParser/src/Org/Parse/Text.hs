@@ -36,7 +36,7 @@ where
 
 import           Control.Monad          (guard)
 import           Control.Lens           hiding ((:>), noneOf)
-import           Data.List              (intercalate, sort)
+import qualified Data.List              as Dl
 import           Data.Time              (UTCTime)
 import           Data.String            (IsString)
 import qualified Data.Text              as Tx
@@ -87,7 +87,7 @@ instance Show (Geocode text) where
       ts = filter normalActive (t ^. #timestamps)
     in
       (Tx.unpack (t ^. #label)) ++ "(" ++
-      intercalate "・" (map (show . GU . (^. #begin)) ts) ++ ")"
+      Dl.intercalate "・" (map (show . GU . (^. #begin)) ts) ++ ")"
 
 instance Eq (LevelEQTitle text) where
   (LEQ t1) == (LEQ t2) = t1 ^. #level == t2 ^. #level
@@ -271,7 +271,7 @@ searchQuery (GeS _ (Just y)) = y
 searchQuery (GeS x _) = x
 
 getFirstTime :: Title text -> Maybe UTCTime
-getFirstTime = fmap (^. #begin) . listToMaybe . sort . aliveTimes
+getFirstTime = fmap (^. #begin) . listToMaybe . Dl.sort . aliveTimes
 
 class (Semigroup a, Monoid a, IsString a) => TitleBuilder a where
   fromToken         :: String -> a
@@ -297,3 +297,5 @@ instance TitleBuilder TXB.TextBuilder where
 
 -- type TB = TXB.TextBuilder
 type BuilderType = Tx.Text
+-- type BuilderType = String
+-- type BuilderType = TXB.TextBuilder

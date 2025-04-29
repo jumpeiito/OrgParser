@@ -14,7 +14,7 @@ import qualified Data.Map.Strict        as Map
 import           Data.Tagged
 import           Data.Proxy
 import           Data.Time
-import           Data.List              (sort)
+import qualified Data.List              as Dl
 import           Data.Function          (on)
 
 type Text = Tx.Text
@@ -116,5 +116,5 @@ kml pts pfs = Element "kml" attr [document]
     attr     = Map.insert "xmlns" "http://www.opengis.net/kml/2.2" mempty
     document = "Document" `makeNode` [iconStyleNode, name', folder1, folder2]
     name'    = "name"     `makeNode` [NodeContent "test"]
-    folder1  = folderToElements $ F "layer1" (sort pts) True
-    folder2  = folderToElements $ F "layer2" (sort pfs) False
+    folder1  = folderToElements $ F "layer1" (Dl.sort pts) True
+    folder2  = folderToElements $ F "layer2" (Dl.sort pfs) False

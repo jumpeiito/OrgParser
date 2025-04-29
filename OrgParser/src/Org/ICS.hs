@@ -13,7 +13,7 @@ module Org.ICS
   )
 where
 
-import           Data.List                   (sort)
+import qualified Data.List                   as Dl
 import           Data.Text                   (Text)
 import           Data.Function               (on)
 import           Data.Time
@@ -104,7 +104,7 @@ headerAuthorization atoken =
 --   return (a, c)
 
 getGoogleCalendarList :: Calendar -> App [CalendarEvent]
-getGoogleCalendarList cal = sort <$> loop Nothing []
+getGoogleCalendarList cal = Dl.sort <$> loop Nothing []
   where
     loop pageToken ret = do
       CalendarResponse events np <- getGoogleCalendarPage pageToken cal

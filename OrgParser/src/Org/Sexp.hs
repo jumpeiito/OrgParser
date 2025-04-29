@@ -9,8 +9,10 @@ import qualified Data.Text              as Tx
 import qualified Data.Text.IO           as TxIO
 import           Data.Void              (Void)
 import           Data.Monoid
-import           Data.List              (isPrefixOf, intercalate)
+import qualified Data.List              as Dl
+import qualified Data.Map.Strict        as M
 import           Data.List.Split        (chunksOf)
+import           Control.Monad.Trans.State.Strict
 
 data Sym = Sym String
   deriving (Show, Eq)
@@ -22,7 +24,6 @@ data Sexp = AS String -- String
           | AI Int    -- Int
           | ASY Sym   -- Symbol
           | L [Sexp]  -- List
-          | QL [Sexp] -- Quoted List
           deriving (Show, Eq)
 
 type Text   = Tx.Text
@@ -33,7 +34,7 @@ toStr (AS s)        = "\"" ++ s ++ "\"" -- String
 toStr (AI i)        = show i            -- Int
 toStr (ASY (Sym s)) = s                 -- Symbol
 toStr (L s)         =                   -- List
-  "(" ++ intercalate " " (map toStr s) ++ ")"
+  "(" ++ Dl.intercalate " " (map toStr s) ++ ")"
 
 atomStr :: Parser Sexp
 atomStr = between quote quote atomStr
@@ -67,42 +68,60 @@ slist = do
   contents <- listsep >> between (single '(') (single ')') listInner
   return $ L contents
 
-qlist :: Parser Sexp -- Quoted List
-qlist = do
-  _ <- listsep >> (chunk "'(")
-  l <- listInner
-  _ <- (single ')')
-  return $ QL l
+-- globalMap :: M.Map Sexp Sexp
+-- globalMap = M.empty
 
--- belongsP :: Sexp -> Sexp -> Maybe Sexp
--- belongsP query slist@(L (s:ss))
---   | query == s = Just slist
---   | otherwise = query `belongsP` s
---                 <|> getFirst (foldMap First $ map (belongsP query) ss)
--- belongsP query _ = Nothing
+-- eval :: Sexp -> StateT (M.Map Sexp Sexp) IO Sexp
+-- eval (AS s) = return (AS s)
+-- eval (AI i) = return (AI i)
+-- eval (ASY (Sym s)) = do
+--   m <- get
+--   case m (M.!) s of
+--     Just v  -> v
+--     Nothing -> error $ "Symbol " ++ s ++ "is not registered"
+-- eval (L x:xs)
+--   | isString x || isInt x = error $ "Head is not symbol."
+--   | otherwise = apply (eval x) (map eval xs)
 
--- assoc :: Sexp -> Sexp -> Maybe Sexp
--- assoc k@(ASY (Sym kwd)) (L xs)
---   | odd $ length xs            = Nothing
---   | not (":" `isPrefixOf` kwd) = Nothing
---   | otherwise =
---     let assocList = [ (x,y) | [x, y] <- chunksOf 2 xs ] in
---       k `lookup` assocList
--- assoc _ _ = Nothing
+-- apply :: Sexp -> Sexp -> Sexp
+-- apply = undefined
 
--- memq :: String -> Sexp -> [Sexp] -> Maybe Sexp
--- memq query val ss = getFirst $ foldMap f ss
---   where
---     q = ASY (Sym query)
---     f sexp = case (== val) <$> assoc q sexp of
---                Just True -> First $ Just sexp
---                _         -> First Nothing
+-- repl :: IO ()
+-- repl = do
+--   line <- getLine
+--   (`runStateT` M.empty) $ do
+--     evaled <- eval line
+--     liftIO $ print evaled
 
--- test :: IO Sexp
--- test = do
---   -- content <- TxIO.readFile "c:/Users/jumpei/Documents/home/OrgFiles/shibu.lisp"
---   content <- TxIO.readFile "e:/OrgFiles/shibu.lisp"
---   case parse slist "" content of
---     Right s -> return s
---     Left _  -> error ""
+-- -- belongsP :: Sexp -> Sexp -> Maybe Sexp
+-- -- belongsP query slist@(L (s:ss))
+-- --   | query == s = Just slist
+-- --   | otherwise = query `belongsP` s
+-- --                 <|> getFirst (foldMap First $ map (belongsP query) ss)
+-- -- belongsP query _ = Nothing
+
+-- -- assoc :: Sexp -> Sexp -> Maybe Sexp
+-- -- assoc k@(ASY (Sym kwd)) (L xs)
+-- --   | odd $ length xs            = Nothing
+-- --   | not (":" `Dl.isPrefixOf` kwd) = Nothing
+-- --   | otherwise =
+-- --     let assocList = [ (x,y) | [x, y] <- chunksOf 2 xs ] in
+-- --       k `lookup` assocList
+-- -- assoc _ _ = Nothing
+
+-- -- memq :: String -> Sexp -> [Sexp] -> Maybe Sexp
+-- -- memq query val ss = getFirst $ foldMap f ss
+-- --   where
+-- --     q = ASY (Sym query)
+-- --     f sexp = case (== val) <$> assoc q sexp of
+-- --                Just True -> First $ Just sexp
+-- --                _         -> First Nothing
+
+-- -- test :: IO Sexp
+-- -- test = do
+-- --   -- content <- TxIO.readFile "c:/Users/jumpei/Documents/home/OrgFiles/shibu.lisp"
+-- --   content <- TxIO.readFile "e:/OrgFiles/shibu.lisp"
+-- --   case parse slist "" content of
+-- --     Right s -> return s
+-- --     Left _  -> error ""
 

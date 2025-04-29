@@ -109,8 +109,7 @@ toPlacemarks gmap cfg = do
                                    location
                                    geo
                                    (P.getFirstTime t)
-        [] -> return Nothing
-        _:_ -> return Nothing
+        _  -> return Nothing
   return $ catMaybes ps
 
 makeKmlFile :: IO ()

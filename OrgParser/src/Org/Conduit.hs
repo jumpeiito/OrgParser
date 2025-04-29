@@ -90,7 +90,7 @@ documentSource document = liftIO (fileLines document)
 
 geocodeProducer :: TitleBuilder text =>
   ((Title text) -> Bool) -> ConduitT () (SelectType text) IO ()
-geocodeProducer f = orgSource
+geocodeProducer f = noteSource
                     .| titleConduit
                     .| selectConduit f
                     .| selectTitleConduit

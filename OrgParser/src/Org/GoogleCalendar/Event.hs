@@ -28,11 +28,11 @@ import           Data.Aeson.Types       hiding (parse, parseMaybe)
 import           Data.Kind              (Type)
 import           Data.Void              (Void)
 import           Data.Time
-import           Data.List              (inits, tails)
 import           Data.Functor           ((<&>))
 import           Text.Megaparsec
 import           Text.Megaparsec.Char   (digitChar)
 import           Data.Functor.Const
+import qualified Data.List              as Dl
 import qualified Data.Text              as Tx
 
 data CalendarEvent =
@@ -342,7 +342,7 @@ instance ComposeString Maybe where
 
 contains :: String -> String -> Bool
 contains [] _ = False
-contains part subs = part `elem` (inits subs ++ tails subs)
+contains part subs = part `elem` (Dl.inits subs ++ Dl.tails subs)
 
 matchQuery :: [CalendarEvent -> Bool] -> CalendarEvent -> Bool
 matchQuery qs event = all ($ event) qs
