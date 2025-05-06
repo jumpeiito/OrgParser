@@ -26,10 +26,15 @@ data Sexp = AS String -- String
           | ASY Sym   -- Symbol
           | Nil
           | Cons Sexp Sexp
+          | Quote Sexp
           deriving (Show, Eq)
 
 type Text   = Tx.Text
 type Parser = Parsec Void Text
+
+type Global = M.Map String Sexp
+
+-- global = M.fromList [("car")]
 
 toStr :: Sexp -> String
 toStr (AS s)        = "\"" ++ s ++ "\"" -- String
@@ -43,6 +48,12 @@ atomStr = between quote quote atomStr
   where
     quote   = single '"'
     atomStr = AS <$> many (noneOf ['"', '\n'])
+
+isString, isInt :: Sexp -> Bool
+isString (AS _) = True
+isString _ = False
+isInt (AI _) = True
+isInt _ = False
 
 atomInt :: Parser Sexp
 atomInt = AI <$> digital
@@ -94,20 +105,21 @@ cdr (Cons _ d) = d
 -- globalMap :: M.Map Sexp Sexp
 -- globalMap = M.empty
 
--- eval :: Sexp -> StateT (M.Map Sexp Sexp) IO Sexp
--- eval (AS s) = return (AS s)
--- eval (AI i) = return (AI i)
--- eval (ASY (Sym s)) = do
---   m <- get
---   case m (M.!) s of
---     Just v  -> v
---     Nothing -> error $ "Symbol " ++ s ++ "is not registered"
--- eval (L x:xs)
---   | isString x || isInt x = error $ "Head is not symbol."
---   | otherwise = apply (eval x) (map eval xs)
+eval :: Sexp -> StateT (M.Map String Sexp) IO Sexp
+eval Nil    = return Nil
+eval (AS s) = return (AS s)
+eval (AI i) = return (AI i)
+eval (ASY (Sym s)) = do
+  m <- get
+  case s `M.lookup` m of
+    Just v  -> return v
+    Nothing -> error $ "Symbol " ++ s ++ " is not registered"
+eval (Cons a d)
+  | isString a || isInt a = error $ "Head is not symbol."
+  | otherwise = apply <$> eval a <*> eval d
 
--- apply :: Sexp -> Sexp -> Sexp
--- apply = undefined
+apply :: Sexp -> Sexp -> Sexp
+apply = undefined
 
 -- repl :: IO ()
 -- repl = do
@@ -115,36 +127,4 @@ cdr (Cons _ d) = d
 --   (`runStateT` M.empty) $ do
 --     evaled <- eval line
 --     liftIO $ print evaled
-
--- -- belongsP :: Sexp -> Sexp -> Maybe Sexp
--- -- belongsP query slist@(L (s:ss))
--- --   | query == s = Just slist
--- --   | otherwise = query `belongsP` s
--- --                 <|> getFirst (foldMap First $ map (belongsP query) ss)
--- -- belongsP query _ = Nothing
-
--- -- assoc :: Sexp -> Sexp -> Maybe Sexp
--- -- assoc k@(ASY (Sym kwd)) (L xs)
--- --   | odd $ length xs            = Nothing
--- --   | not (":" `Dl.isPrefixOf` kwd) = Nothing
--- --   | otherwise =
--- --     let assocList = [ (x,y) | [x, y] <- chunksOf 2 xs ] in
--- --       k `lookup` assocList
--- -- assoc _ _ = Nothing
-
--- -- memq :: String -> Sexp -> [Sexp] -> Maybe Sexp
--- -- memq query val ss = getFirst $ foldMap f ss
--- --   where
--- --     q = ASY (Sym query)
--- --     f sexp = case (== val) <$> assoc q sexp of
--- --                Just True -> First $ Just sexp
--- --                _         -> First Nothing
-
--- -- test :: IO Sexp
--- -- test = do
--- --   -- content <- TxIO.readFile "c:/Users/jumpei/Documents/home/OrgFiles/shibu.lisp"
--- --   content <- TxIO.readFile "e:/OrgFiles/shibu.lisp"
--- --   case parse slist "" content of
--- --     Right s -> return s
--- --     Left _  -> error ""
 
