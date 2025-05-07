@@ -56,6 +56,11 @@ data Line text = LL (Title text)
                | LB
                | LO (Other text)
                deriving (Show, Eq)
+-- data Line text where
+--   LL :: TitleBuilder text => Title text -> Line text
+--   LP :: TitleBuilder text => (Text, Text) -> Line text
+--   LB :: TitleBuilder text => Line text
+--   LO :: TitleBuilder text => Other text -> Line text
 
 type Title text = Record
   [ "label"      :> Text
@@ -114,10 +119,10 @@ mplusOther :: Monoid text => (Other text) -> (Title text) -> (Title text)
 mplusOther o t =
   let
     othersRefine = (^. #others)
-    x1 = t  & #timestamps %~ (<> o ^. #timestamps)
-    x2 = x1 & #paragraph  %~ (<> othersRefine o)
-    (loc, geo) = x2 ^. #location
-    x3 = x2 & #location .~ (loc, geo <> (o ^. #geocode))
+    x1           = t  & #timestamps %~ (<> o ^. #timestamps)
+    x2           = x1 & #paragraph  %~ (<> othersRefine o)
+    (loc, geo)   = x2 ^. #location
+    x3           = x2 & #location .~ (loc, geo <> (o ^. #geocode))
   in
     x3
 

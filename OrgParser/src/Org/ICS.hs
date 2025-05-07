@@ -191,9 +191,10 @@ updateGoogleCalendar cal = do
     gcalList <- getGoogleCalendarVector cal
     allev    <- liftIO forICSVector
     let events    = V.filter (filterEvent cal) allev
-    let almostSet = S.fromList $ V.toList $ V.map Almost gcalList
-    let edibleSet = S.fromList $ V.toList $ V.map Edible gcalList
-    let almostOrg = S.fromList $ V.toList $ V.map Almost events
+    let setMap f  = S.fromList . V.toList . V.map f
+    let almostSet = setMap Almost gcalList
+    let edibleSet = setMap Edible gcalList
+    let almostOrg = setMap Almost events
     let diffs     = diffCalendarEvent events almostSet edibleSet gcalList
     let diffVerse = diffVerseCalendarEvent almostOrg gcalList
     -- forM_ (filter isEdible diffs) $ \(CeeEdible c1 c2) -> do

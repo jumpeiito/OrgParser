@@ -16,7 +16,7 @@ import           Org.Parse.Utility
 import           Org.Parse.Time
 import           Org.Parse.Text
 
-isLL, isLP, isLB, isLO :: Line -> Bool
+isLL, isLP, isLB, isLO :: Line Text -> Bool
 isLL (LL _) = True
 isLL _      = False
 isLP (LP _) = True
@@ -61,7 +61,8 @@ spec = do
       parse todoP "" "" `shouldBe` Right Nothing
   describe "titleP" $ do
     it "(1)" $ do
-      parse titleP "" "**** hoge"
+      let f = (titleP :: Parser (Title Tx.Text))
+      parse f "" "**** hoge"
         `shouldBe`
        Right (#label         @= "hoge"
               <: #level      @= 4
@@ -74,7 +75,7 @@ spec = do
               <: #path       @= mempty
               <: nil)
     it "(2)" $ do
-      parse titleP "" "*** [10/10] hoge"
+      parse f "" "*** [10/10] hoge"
         `shouldBe`
        Right (#label         @= "hoge"
               <: #level      @= 3
