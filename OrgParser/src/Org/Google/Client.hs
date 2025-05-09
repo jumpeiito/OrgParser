@@ -142,7 +142,7 @@ makeQuery :: Text -> Text -> Maybe URI.QueryParam
 makeQuery k v =
   let
     convert = URI.mkQueryValue
-              . Tx.replace "%25" "%"
+              -- . Tx.replace "%25" "%"
               . convertString
               . Types.urlEncode True
               . convertString
@@ -165,7 +165,9 @@ getPermissionURI = do
                   , ("redirect_uri",  redirect)
                   , ("client_id",     clientid)]
       let query = mempty `fromMaybe` mapM (uncurry makeQuery) param
-      return $ URI.render $ uri { URI.uriQuery = query }
+      return $ Tx.replace "%25" "%"
+             $ URI.render
+             $ uri { URI.uriQuery = query }
 
 _test :: Config -> IO ()
 _test config = do
@@ -173,7 +175,8 @@ _test config = do
   case cl of
     Nothing -> return ()
     Just c  -> do
-      txt <- aliveAccessToken `evalStateT` (config, c)
+      -- txt <- aliveAccessToken `evalStateT` (config, c)
+      txt <- getPermissionURI `evalStateT` (config, c)
       print txt
       -- getRefreshToken `evalStateT` (config, c)
 
@@ -229,8 +232,8 @@ validateAccessToken :: App Bool
 validateAccessToken = do
   (cfg, cl) <- get
   let atoken = accessToken cl
-  let query = "access_token" =: atoken
-  let url = validateServer cfg
+  let query  = "access_token" =: atoken
+  let url    = validateServer cfg
   runReq defaultHttpConfig $ do
     _ <- req GET url NoReqBody lbsResponse query
     return True

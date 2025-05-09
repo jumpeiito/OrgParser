@@ -1,3 +1,5 @@
+{-# LANGUAGE GADTs         #-}
+{-# LANGUAGE StandaloneDeriving         #-}
 module Org.Sexp
   (
   )
@@ -19,7 +21,7 @@ data Sym = Sym String
   deriving (Show, Eq)
 
 data Atom
-data Cons
+data Kons
 
 data Sexp = AS String -- String
           | AI Int    -- Int
@@ -29,10 +31,67 @@ data Sexp = AS String -- String
           | Quote Sexp
           deriving (Show, Eq)
 
+-- deriving instance Show (SP a)
+
+-- data SP a where
+--   String :: String -> SP String
+--   Int    :: Int -> SP Int
+--   Symbol :: Sym -> SP Sym
+--   Null   :: SP ()
+--   Kons   :: (SP a) -> (SP b) -> SP Kons
+
 type Text   = Tx.Text
 type Parser = Parsec Void Text
 
 type Global = M.Map String Sexp
+
+-- tos :: SP a -> String
+-- tos (String s) = s
+-- tos (Int i) = show i
+-- tos (Symbol (Sym s)) = s
+-- tos _ = ""
+
+-- aString :: Parser (SP String)
+-- aString = between quote quote atomStr
+--   where
+--     quote   = single '"'
+--     atomStr = String <$> many (noneOf ['"', '\n'])
+
+-- aInt :: Parser (SP Int)
+-- aInt = Int <$> digital
+--   where
+--     digital = do
+--       sign  <- 1 `option` (single '-' >> return (-1))
+--       digit <- read <$> some digitChar
+--       return $ digit * sign
+
+-- aSymbol :: Parser (SP Sym)
+-- aSymbol = (Symbol . Sym) <$> symbol
+--   where
+--     symbol = do
+--       symbolName <- some (noneOf ['(', ')', '"', ' ', '\n'])
+--       guard $ symbolName /= "."
+--       return symbolName
+
+-- konsP :: Parser (SP Kons)
+-- konsP = listsep >> between (single '(') (single ')') core
+--   where
+--     selector  = choice $ map try [ aString
+--                                  , aInt
+--                                  , aSymbol
+--                                  , konsP]
+--     coreBlank = return Null
+--     coreCons  = Kons <$> (listsep >> selector)
+--                      <*> (listsep >> single '.' >> listsep >> selector)
+--     coreList  = Kons <$> (listsep >> selector <* listsep)
+--                      <*> (try core <|> coreBlank)
+--     core = try coreCons <|> try coreList
+
+-- aisString, aisInt :: SP a -> Bool
+-- aisString (String _) = True
+-- aisString _          = False
+-- aisInt (Int _)       = True
+-- aisInt _             = False
 
 -- global = M.fromList [("car")]
 
