@@ -12,6 +12,7 @@ where
 
 import           GHC.Base               (Alternative)
 import           Data.Time
+import qualified Data.List              as DL
 import           Data.Tagged
 import           Data.Void
 import qualified Data.Text               as Tx
@@ -41,8 +42,9 @@ makeUTC y m d h mi = UTCTime (fromG y m d) dayOfSeconds
       secondsToDiffTime $ toInteger h * 3600 + toInteger mi * 60
 
 anyP :: Alternative f => [f a] -> f a
-anyP (p:parsers) = foldl (<|>) p parsers
+anyP (p:parsers) = DL.foldl' (<|>) p parsers
 anyP [] = undefined
+{-# INLINE anyP #-}
 
 changeSlots :: ASetter a1 b1 a2 b2 -> b2 -> a1 -> b1
 changeSlots sym value tsmp = tsmp & sym .~ value

@@ -1,5 +1,5 @@
+{-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DataKinds, FlexibleContexts #-}
 module Org.Google.Client
   (
     Client (..)
@@ -16,21 +16,20 @@ module Org.Google.Client
   )
 where
 
-import           Control.Monad             (guard)
+import           Control.Monad           (guard)
+import           Control.Monad.Catch     (catch)
 import           Control.Monad.State
-import           Control.Monad.Catch       (catch)
 import           Data.Aeson
 import           Data.Aeson.Types
-import           Data.Maybe                (fromMaybe, isJust, fromJust)
-import           Data.Functor              ((<&>))
-import           System.Environment        (getEnv)
-import           Data.String.Conversions   (convertString)
-import qualified Data.Text                 as Tx
-import qualified Data.ByteString.Lazy      as B
+import qualified Data.ByteString.Lazy    as B
+import           Data.Functor            ((<&>))
+import           Data.Maybe              (fromJust, fromMaybe, isJust)
+import           Data.String.Conversions (convertString)
+import qualified Data.Text               as Tx
 import           Network.HTTP.Req
-import qualified Network.HTTP.Types.URI    as Types
--- import           Text.URI                  (URI)
-import qualified Text.URI                  as URI
+import qualified Network.HTTP.Types.URI  as Types
+import           System.Environment      (getEnv)
+import qualified Text.URI                as URI
 
 type Text = Tx.Text
 
@@ -183,14 +182,14 @@ _test config = do
 getRefreshToken :: App ()
 getRefreshToken = do
   (cfg, cl) <- get
-  let redirect = redirectURI cl !! 0
-  let clientid = clientID cl
-  let clientsc = clientSecret cl
-  let permiss  = permissionCode cl
+  let redirect = head $ redirectURI cl
+  -- let clientid = clientID cl
+  -- let clientsc = clientSecret cl
+  -- let permiss  = permissionCode cl
   let params :: [(Text, Text)]
-      params = [ ("code",          permiss)
-               , ("client_id" ,    clientid)
-               , ("client_secret", clientsc)
+      params = [ ("code",          permissionCode cl)
+               , ("client_id" ,    clientID cl)
+               , ("client_secret", clientSecret cl)
                , ("redirect_uri",  redirect)
                , ("grant_type",    "authorization_code")]
       query :: Option scheme
@@ -246,7 +245,8 @@ validateAccessToken = do
           liftIO $ print ("AccessToken to refresh" :: String)
           return False
         JsonHttpException e -> do
-          liftIO $ print e; return False
+          liftIO $ print e
+          return False
 
 aliveAccessToken :: App Text
 aliveAccessToken = do

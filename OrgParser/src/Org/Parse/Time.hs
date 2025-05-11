@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedLabels  #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators     #-}
+{-# LANGUAGE DeriveGeneric     #-}
 module Org.Parse.Time
   (
     Time
@@ -25,6 +26,7 @@ module Org.Parse.Time
   , timestampCoreP
   , timestampSingleP
   , timestampTypeP
+  , _timestampTypeRefineP
   )
 where
 
@@ -38,9 +40,11 @@ import           Data.Extensible
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import           Org.Parse.Utility
+import           GHC.Generics
+import           Control.DeepSeq
 
 data TimestampType = Normal | Scheduled | Deadline | Closed
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic)
 
 type Timestamp = Record
   [ "begin"    :> UTCTime
@@ -51,6 +55,8 @@ type Timestamp = Record
 type Time            = (Tagged "Hour" Int, Tagged "Minute" Int)
 type TimeFull        = (Tagged "Hour" Int, Tagged "Minute" Int, Tagged "Second" Int)
 newtype GeocodeUTC   = GU UTCTime
+
+instance NFData TimestampType where rnf = rwhnf
 
 instance Show GeocodeUTC where
   show (GU d) =
@@ -85,7 +91,7 @@ class OrgTime a where
   timeP :: Parser a
 
 instance OrgTime Time where
-  timeP = (,) <$> hourP <* (single ':') <*> minuteP
+  timeP = (,) <$> hourP <* single ':' <*> minuteP
 
 instance OrgTime TimeFull where
   timeP = (,,) <$> hourP <* sep <*> minuteP <* sep <*> secondP
@@ -118,8 +124,8 @@ timestampTypeP = Normal `option` anyP parsers
 _timestampTypeRefineP :: Parser TimestampType
 _timestampTypeRefineP =
   try (chunk "SCHEDULED: "    >> return Scheduled)
-  <|> try (chunk "DEADLINE: " >> return Deadline)
-  <|> try (chunk "CLOSED: "   >> return Closed)
+  <|> (chunk "DEADLINE: " >> return Deadline)
+  <|> (chunk "CLOSED: "   >> return Closed)
   <|> return Normal
 
 timestampCoreP :: Parser Timestamp
@@ -139,8 +145,8 @@ timestampSingleP :: Parser Timestamp
 timestampSingleP = changeSlots #active True <$> activeParser
                    <|> changeSlots #active False <$> inactiveParser
   where
-    activeParser       = between (single '<') (single '>') timestampCoreP
-    inactiveParser     = between (single '[') (single ']') timestampCoreP
+    activeParser   = between (single '<') (single '>') timestampCoreP
+    inactiveParser = between (single '[') (single ']') timestampCoreP
 
 timestampP :: Parser Timestamp
 timestampP = do

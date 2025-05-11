@@ -31,6 +31,7 @@ module Org.Parse.Text
   , linkP
   , geocodeP
   , otherRefineP
+  , otherExtremeP
   )
 where
 
@@ -39,6 +40,7 @@ import           Control.Lens           hiding ((:>), noneOf)
 import qualified Data.List              as Dl
 import           Data.Time              (UTCTime)
 import           Data.String            (IsString)
+import           Data.Foldable          (fold)
 import qualified Data.Text              as Tx
 -- import qualified Data.Text.Lazy.Builder as TxLB
 import           Data.Maybe             (fromMaybe, maybeToList, isJust
@@ -50,6 +52,7 @@ import           Org.Node
 import qualified TextBuilder            as TXB
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
+import           Control.DeepSeq
 
 data Line text = LL (Title text)
                | LP (Text, Text)
@@ -84,14 +87,16 @@ newtype Link              = Link (Text, Maybe Text) deriving Show
 newtype LevelEQTitle text = LEQ (Title text)
 newtype Geocode text      = Geo (Title text)
 
+instance NFData GeocodeSearch where rnf = rwhnf
+
 instance Show (Geocode text) where
   show (Geo t) =
     let
       normalActive stamp =
-        (stamp ^. #datetype == Normal) && (stamp ^. #active == True)
+        (stamp ^. #datetype == Normal) && (stamp ^. #active)
       ts = filter normalActive (t ^. #timestamps)
     in
-      (Tx.unpack (t ^. #label)) ++ "(" ++
+      Tx.unpack (t ^. #label) ++ "(" ++
       Dl.intercalate "・" (map (show . GU . (^. #begin)) ts) ++ ")"
 
 instance Eq (LevelEQTitle text) where
@@ -115,7 +120,7 @@ defOther = #timestamps @= mempty
            <: #geocode @= mempty
            <: nil
 
-mplusOther :: Monoid text => (Other text) -> (Title text) -> (Title text)
+mplusOther :: Monoid text => Other text -> Title text -> Title text
 mplusOther o t =
   let
     othersRefine = (^. #others)
@@ -128,7 +133,7 @@ mplusOther o t =
 
 tagsP :: Parser [Text]
 tagsP = do
-  let tagToken = Tx.pack <$> (some $ noneOf [' ', ':', '\t', '\n'])
+  let tagToken = Tx.pack <$> some (noneOf [' ', ':', '\t', '\n'])
   let sep = single ':'
   tagname <- between sep (lookAhead sep) tagToken
   loop    <- mempty `option` try tagsP
@@ -212,8 +217,13 @@ linebreakP = chunk "# linebreak" >> return LineBreak
 
 -- ((someTill (single ' ') (lookAhead (single ':')) >> (single ':')) :: Parser (Token Tx.Text)) `parseTest` Tx.pack "   :"
 -- >>> ':'
+test l = do
+  eof >> return l
+  <|> (linebreakP >> return l)
+  <|> ((:) <$> anySingle <*> test l)
 
 otherRefineP :: TitleBuilder text => Parser (Other text)
+-- otherRefineP = def `option` (loop def <|> literalOnly def)
 otherRefineP = def `option` (loop def <|> literalOnly def)
   where
     def = defOther
@@ -243,6 +253,35 @@ otherRefineP = def `option` (loop def <|> literalOnly def)
       lo <- manyTill anySingle eof
       loop (oth & #others %~ (<> fromToken lo))
 {-# INLINE otherRefineP #-}
+
+otherExtremeP :: TitleBuilder text => Parser (Other text)
+otherExtremeP = loop defOther mempty
+  where
+    spaces = many (single ' ')
+    eofOperate :: TitleBuilder text => Other text -> text -> Parser (Other text)
+    eofOperate o txt   = return (o & #others %~ (<> txt))
+    tsOperate o txt = do
+      ts <- try timestampP <* spaces
+      loop (o & #timestamps %~ (<> [ts])) txt
+    lkOperate :: TitleBuilder text =>
+      Other text -> text -> Parser (Other text)
+    lkOperate o txt = do
+      lk <- try linkP <* spaces
+      loop o (txt <> lk)
+    gcOperate o txt = do
+      gc <- try geocodeP <* spaces
+      loop (o & #geocode %~ (<> [gc])) txt
+    others o txt = do
+      s <- anySingle
+      loop o (txt <> fromToken [s])
+    loop :: TitleBuilder text => (Other text) -> text -> Parser (Other text)
+    loop o txt = do
+      try eof >> (eofOperate o txt)
+      <|> (tsOperate o txt)
+      <|> (lkOperate o txt)
+      <|> (gcOperate o txt)
+      <|> others o txt
+{-# INLINE otherExtremeP #-}
 
 lineParse :: TitleBuilder text => Parser (Line text)
 lineParse = LO defOther `option` (ll <|> lp <|> lb <|> lo)
@@ -284,7 +323,7 @@ class (Semigroup a, Monoid a, IsString a) => TitleBuilder a where
   builderIsPrefixOf :: a -> a -> Bool
   builderConcat     :: [a] -> a
   builderIsPrefixOf tb1 tb2 = toText tb1 `Tx.isPrefixOf` toText tb2
-  builderConcat = foldr (<>) mempty
+  builderConcat = fold
 
 instance TitleBuilder Tx.Text where
   fromToken         = Tx.pack

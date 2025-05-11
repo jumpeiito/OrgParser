@@ -1,9 +1,5 @@
 {-# LANGUAGE FlexibleContexts     #-}
 {-# LANGUAGE FlexibleInstances    #-}
-{-# LANGUAGE OverloadedStrings    #-}
-{-# LANGUAGE OverloadedLabels     #-}
-{-# LANGUAGE OverloadedRecordDot  #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 module Org.Node (Node (..) , Nodeable (..)) where
 
 import           Control.Applicative        ((<|>), Alternative (..))
@@ -57,7 +53,7 @@ class Nodeable a where
     nex' <- buildPath newa next
     return $ Node a nex' c
   buildPath newa oldn@(Node a None c)
-    | newa `isNext` a == True = do
+    | newa `isNext` a = do
         next <- setPath newa
         return $ Node a next c
     | otherwise = buildChildPath newa oldn
@@ -75,9 +71,9 @@ class Nodeable a where
   scrapWith _ None = []
   scrapWith f (Node a n c) =
     let second = scrapWith f c ++ scrapWith f n in
-      case f a of
-        True  -> a : second
-        False -> second
+      if f a
+      then a : second
+      else second
 
   scrap = scrapWith scrapFilter
 
@@ -91,7 +87,7 @@ class Nodeable a where
   pick _ None = None
   pick f (Node a n c)
     | f a = Node a None c
-    | otherwise = (pick f n) <|> (pick f c)
+    | otherwise = pick f n <|> pick f c
 
   select _ None = (None, None)
   select f n = (pick f n, cut f n)

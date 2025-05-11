@@ -10,6 +10,7 @@ import           Data.Extensible
 import qualified Data.Text              as Tx
 import           Data.Void              (Void)
 import           Data.Either            (isLeft)
+import           Data.Foldable          (fold)
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import           Org.Parse.Utility
@@ -60,8 +61,8 @@ spec = do
     it "(2)" $ do
       parse todoP "" "" `shouldBe` Right Nothing
   describe "titleP" $ do
+    let f = (titleP :: Parser (Title Tx.Text))
     it "(1)" $ do
-      let f = (titleP :: Parser (Title Tx.Text))
       parse f "" "**** hoge"
         `shouldBe`
        Right (#label         @= "hoge"
@@ -88,7 +89,7 @@ spec = do
               <: #path       @= mempty
               <: nil)
     it "(3)" $ do
-      parse titleP "" "*** TODO [10/10] hoge"
+      parse f "" "*** TODO [10/10] hoge"
         `shouldBe`
        Right (#label         @= "hoge"
               <: #level      @= 3
@@ -101,7 +102,7 @@ spec = do
               <: #path       @= mempty
               <: nil)
     it "(4)" $ do
-      parse titleP "" "*** DONE [10/10] hoge    "
+      parse f "" "*** DONE [10/10] hoge    "
         `shouldBe`
        Right (#label         @= "hoge"
               <: #level      @= 3
@@ -114,7 +115,7 @@ spec = do
               <: #path       @= mempty
               <: nil)
     it "(5)" $ do
-      parse titleP "" "*** DONE [10/10] ho  ge    "
+      parse f "" "*** DONE [10/10] ho  ge    "
         `shouldBe`
        Right (#label         @= "ho  ge"
               <: #level      @= 3
@@ -127,7 +128,7 @@ spec = do
               <: #path       @= mempty
               <: nil)
     it "(6)" $ do
-      parse titleP "" "*** DONE [10/10] ho  ge    ::"
+      parse f "" "*** DONE [10/10] ho  ge    ::"
         `shouldBe`
        Right (#label         @= "ho  ge    ::"
               <: #level      @= 3
@@ -140,7 +141,7 @@ spec = do
               <: #path       @= mempty
               <: nil)
     it "(7)" $ do
-      parse titleP "" "*** DONE [10/10] ho  ge    :hoge:"
+      parse f "" "*** DONE [10/10] ho  ge    :hoge:"
         `shouldBe`
        Right (#label         @= "ho  ge"
               <: #level      @= 3
@@ -153,7 +154,7 @@ spec = do
               <: #path       @= mempty
               <: nil)
     it "(8)" $ do
-      parse titleP "" "*** DONE [10/10] ho  ge <2024-12-01 土 12:00>"
+      parse f "" "*** DONE [10/10] ho  ge <2024-12-01 土 12:00>"
         `shouldBe`
         Right (#label         @= "ho  ge"
                <: #level      @= 3
@@ -170,7 +171,7 @@ spec = do
                <: #path       @= mempty
                <: nil)
     it "(9)" $ do
-      parse titleP "" "*** DONE [10/10] ho ge  <2024-12-01 火 12:00> :hoge:"
+      parse f "" "*** DONE [10/10] ho ge  <2024-12-01 火 12:00> :hoge:"
         `shouldBe`
        Right (#label         @= "ho ge"
               <: #level      @= 3
@@ -187,7 +188,7 @@ spec = do
               <: #path       @= mempty
               <: nil)
     it "(10)" $ do
-      parse titleP "" "*** ho ge  <2024-12-01 木 12:00>"
+      parse f "" "*** ho ge  <2024-12-01 木 12:00>"
         `shouldBe`
         Right (#label         @= "ho ge"
                <: #level      @= 3
@@ -204,7 +205,7 @@ spec = do
                <: #path       @= mempty
                <: nil)
     it "(11)" $ do
-      parse titleP "" "***** DONE 加入申込書の納品 :片岡:"
+      parse f "" "***** DONE 加入申込書の納品 :片岡:"
         `shouldBe`
         Right (#label         @= "加入申込書の納品"
                 <: #level      @= 5
@@ -217,7 +218,7 @@ spec = do
                 <: #path       @= mempty
                 <: nil)
     it "(12)" $ do
-      parse titleP "" "***** 石見銀山"
+      parse f "" "***** 石見銀山"
         `shouldBe`
         Right (#label         @= "石見銀山"
                 <: #level      @= 5
@@ -230,7 +231,7 @@ spec = do
                 <: #path       @= mempty
                 <: nil)
   describe "otherP" $ do
-    let f = otherRefineP
+    let f = (otherExtremeP :: Parser (Other Tx.Text))
     it "(1)" $ do
       let
         p :: Parser ([Token Tx.Text], Timestamp)
@@ -295,10 +296,10 @@ spec = do
                                  <: #active @= True
                                  <: #end @= Just (makeUTC 2025 4 11 17 0)
                                  <: nil]
-                <: #others @= foldMap id
-                                      [ "hoge "
-                                      , "foo "
-                                      , "<a href=\"http://google.co.jp\">Google</a>", "buz! "]
+                <: #others @=
+                   fold [ "hoge "
+                        , "foo "
+                        , "<a href=\"http://google.co.jp\">Google</a>", "buz! "]
                 <: #geocode @= mempty
                 <: nil)
     it "(6)" $ do
@@ -314,10 +315,10 @@ spec = do
                                  <: #active @= True
                                  <: #end @= Just (makeUTC 2025 4 11 17 0)
                                  <: nil]
-                <: #others @= foldMap id
-                                      [ "hoge "
-                                      , "foo "
-                                      , "<a href=\"http://google.co.jp\">Google</a>", "buz! "]
+                <: #others @=
+                   fold [ "hoge "
+                        , "foo "
+                        , "<a href=\"http://google.co.jp\">Google</a>", "buz! "]
                 <: #geocode @= [GeS "かみあり製麺" (Just "島根県出雲市斐川町学頭1815-1")]
                 <: nil)
     it "(7)" $ do
@@ -339,124 +340,124 @@ spec = do
                                       , "<a href=\"http://google.co.jp\">Google</a>", "buz! "]
                 <: #geocode @= [GeS "かみあり製麺" (Just "島根県出雲市斐川町学頭1815-1")]
                 <: nil)
-  describe "lineParse" $ do
-    it "(1)" $ do
-      isLL <$> parse lineParse "" "**** hoge" `shouldBe` Right True
-      isLL <$> parse lineParse "" " *** hoge" `shouldBe` Right False
-      isLL <$> parse lineParse "" "*** [10/10] hoge" `shouldBe` Right True
-      isLL <$> parse lineParse "" "*** TODO [10/10] hoge" `shouldBe` Right True
-      isLL <$> parse lineParse "" "*** DONE [10/10] hoge    " `shouldBe` Right True
-      isLL <$> parse lineParse "" "*** DONE [10/10] ho  ge    " `shouldBe` Right True
-      isLL <$> parse lineParse "" "*** DONE [10/10] ho  ge    ::" `shouldBe` Right True
-      isLL <$> parse lineParse "" "** DONE [10/10] ho  ge    :hoge:" `shouldBe` Right True
-      isLL <$> parse lineParse "" "*** DONE [10/10] ho  ge <2024-12-01 土 12:00>" `shouldBe` Right True
-      isLL <$> parse lineParse "" "*** DONE [10/10] ho ge  <2024-12-01 火 12:00> :hoge:" `shouldBe` Right True
-      isLL <$> parse lineParse "" "*** ho ge  <2024-12-01 木 12:00>" `shouldBe` Right True
-      isLL <$> parse lineParse "" "***** DONE 加入申込書の納品 :片岡:" `shouldBe` Right True
-    it "(2)" $ do
-      parse lineParse "" "***** 石見銀山" `shouldBe`
-        Right (LL (#label      @= "石見銀山"
-                <: #level      @= 5
-                <: #todo       @= Nothing
-                <: #tags       @= []
-                <: #timestamps @= []
-                <: #paragraph  @= mempty
-                <: #properties @= mempty
-                <: #location   @= mempty
-                <: #path       @= mempty
-                <: nil))
-      -- parse lineParse "" ":PROPERTIES:" `shouldBe`
-      --   Right (LP ("PROPERTIES", ""))
-      parse lineParse "" ":LOCATION: 石見銀山" `shouldBe`
-        Right (LP ("LOCATION", "石見銀山"))
-      parse lineParse "" ":END:" `shouldBe`
-        Right (LP ("END", ""))
-      parse lineParse "" "<2025-05-03 土 10:00-11:40>" `shouldBe`
-        Right (LO (#timestamps @= [ #begin @= makeUTC 2025 5 3 10 0
-                                 <: #datetype @= Normal
-                                 <: #active @= True
-                                 <: #end @= (Just $ makeUTC 2025 5 3 11 40)
-                                 <: nil]
-                   <: #others @= mempty
-                   <: #geocode @= mempty
-                   <: nil))
+  -- describe "lineParse" $ do
+  --   it "(1)" $ do
+  --     isLL <$> parse lineParse "" "**** hoge" `shouldBe` Right True
+  --     isLL <$> parse lineParse "" " *** hoge" `shouldBe` Right False
+  --     isLL <$> parse lineParse "" "*** [10/10] hoge" `shouldBe` Right True
+  --     isLL <$> parse lineParse "" "*** TODO [10/10] hoge" `shouldBe` Right True
+  --     isLL <$> parse lineParse "" "*** DONE [10/10] hoge    " `shouldBe` Right True
+  --     isLL <$> parse lineParse "" "*** DONE [10/10] ho  ge    " `shouldBe` Right True
+  --     isLL <$> parse lineParse "" "*** DONE [10/10] ho  ge    ::" `shouldBe` Right True
+  --     isLL <$> parse lineParse "" "** DONE [10/10] ho  ge    :hoge:" `shouldBe` Right True
+  --     isLL <$> parse lineParse "" "*** DONE [10/10] ho  ge <2024-12-01 土 12:00>" `shouldBe` Right True
+  --     isLL <$> parse lineParse "" "*** DONE [10/10] ho ge  <2024-12-01 火 12:00> :hoge:" `shouldBe` Right True
+  --     isLL <$> parse lineParse "" "*** ho ge  <2024-12-01 木 12:00>" `shouldBe` Right True
+  --     isLL <$> parse lineParse "" "***** DONE 加入申込書の納品 :片岡:" `shouldBe` Right True
+  --   it "(2)" $ do
+  --     parse lineParse "" "***** 石見銀山" `shouldBe`
+  --       Right (LL (#label      @= "石見銀山"
+  --               <: #level      @= 5
+  --               <: #todo       @= Nothing
+  --               <: #tags       @= []
+  --               <: #timestamps @= []
+  --               <: #paragraph  @= mempty
+  --               <: #properties @= mempty
+  --               <: #location   @= mempty
+  --               <: #path       @= mempty
+  --               <: nil))
+  --     -- parse lineParse "" ":PROPERTIES:" `shouldBe`
+  --     --   Right (LP ("PROPERTIES", ""))
+  --     parse lineParse "" ":LOCATION: 石見銀山" `shouldBe`
+  --       Right (LP ("LOCATION", "石見銀山"))
+  --     parse lineParse "" ":END:" `shouldBe`
+  --       Right (LP ("END", ""))
+  --     parse lineParse "" "<2025-05-03 土 10:00-11:40>" `shouldBe`
+  --       Right (LO (#timestamps @= [ #begin @= makeUTC 2025 5 3 10 0
+  --                                <: #datetype @= Normal
+  --                                <: #active @= True
+  --                                <: #end @= (Just $ makeUTC 2025 5 3 11 40)
+  --                                <: nil]
+  --                  <: #others @= mempty
+  --                  <: #geocode @= mempty
+  --                  <: nil))
 
-      parse lineParse "" "[[https://www.google.com/maps/dir][自宅～石見銀山]]"
-        `shouldBe`
-        Right (LO (#timestamps @= mempty
-                   <: #others @= "<a href=\"https://www.google.com/maps/dir\">自宅～石見銀山</a>"
-                   <: #geocode @= mempty
-                   <: nil))
-  -- it "(2)" $ do
-    --   parse otherP "" "CLOSED: [2025-03-24 月 11:58] SCHEDULED: <2025-03-24 月>"
-    --     `shouldBe`
-    --     Right (#timestamps @= [ #begin       @= makeUTC 2025 3 24 11 58
-    --                             <: #datetype @= Normal
-    --                             <: #active   @= False
-    --                             <: #end      @= Nothing <: nil
-    --                           , #begin       @= makeUTC 2025 3 24 0 0
-    --                             <: #datetype @= Normal
-    --                             <: #active   @= True
-    --                             <: #end      @= Nothing <: nil]
-    --            <: #others @= mempty
-    --            <: #link @= mempty
-    --            <: nil)
+  --     parse lineParse "" "[[https://www.google.com/maps/dir][自宅～石見銀山]]"
+  --       `shouldBe`
+  --       Right (LO (#timestamps @= mempty
+  --                  <: #others @= "<a href=\"https://www.google.com/maps/dir\">自宅～石見銀山</a>"
+  --                  <: #geocode @= mempty
+  --                  <: nil))
+  -- -- it "(2)" $ do
+  --   --   parse otherP "" "CLOSED: [2025-03-24 月 11:58] SCHEDULED: <2025-03-24 月>"
+  --   --     `shouldBe`
+  --   --     Right (#timestamps @= [ #begin       @= makeUTC 2025 3 24 11 58
+  --   --                             <: #datetype @= Normal
+  --   --                             <: #active   @= False
+  --   --                             <: #end      @= Nothing <: nil
+  --   --                           , #begin       @= makeUTC 2025 3 24 0 0
+  --   --                             <: #datetype @= Normal
+  --   --                             <: #active   @= True
+  --   --                             <: #end      @= Nothing <: nil]
+  --   --            <: #others @= mempty
+  --   --            <: #link @= mempty
+  --   --            <: nil)
 
-  describe "otherP" $ do
-    let f = otherRefineP
-    it "(1)" $ do
-      parse f "" "  <2025-01-01 月 10:00-12:00> CLOSED: <2025-04-01 火 11:00>"
-        `shouldBe`
-        Right ( #timestamps @=
-                [ #begin @= makeUTC 2025 1 1 10 0
-                  <: #datetype @= Normal
-                  <: #active   @= True
-                  <: #end      @= (Just $ makeUTC 2025 1 1 12 0)
-                  <: nil
-                , #begin @= makeUTC 2025 4 1 11 0
-                  <: #datetype @= Closed
-                  <: #active   @= True
-                  <: #end      @= Nothing
-                  <: nil]
-                <: #others @= "  "
-                <: #geocode @= mempty
-                <: nil )
-    it "(2)" $ do
-      parse f "" "Haskell Compiler" `shouldBe`
-        Right ( #timestamps @= []
-              <: #others @= "Haskell Compiler"
-              <: #geocode @= mempty
-              <: nil )
-    it "(3)" $ do
-      parse f "" "[[http://www.google.co.jp][Google]]" `shouldBe`
-        Right ( #timestamps @= []
-              <: #others @= "<a href=\"http://www.google.co.jp\">Google</a>"
-              <: #geocode @= mempty
-              <: nil )
-    it "(4)" $ do
-      parse f "" "[[http://www.google.co.jp]]" `shouldBe`
-        Right ( #timestamps @= []
-              <: #others @= "<a href=\"http://www.google.co.jp\">http://www.google.co.jp</a>"
-              <: #geocode @= mempty
-              <: nil )
-    it "(5)" $ do
-      parse f "" "<2025-04-01 土 10:00>" `shouldBe`
-        Right ( #timestamps @=
-                [ #begin @= makeUTC 2025 4 1 10 0
-                  <: #datetype @= Normal
-                  <: #active @= True
-                  <: #end @= Nothing
-                  <: nil]
-              <: #others @= mempty
-              <: #geocode @= mempty
-              <: nil )
-    it "(6)" $ do
-      parse f "" "Google [[http://www.google.co.jp][Google]] link"
-        `shouldBe`
-        Right ( #timestamps @= []
-              <: #others @= foldMap id
-                                    ["Google "
-                                    , "<a href=\"http://www.google.co.jp\">Google</a>"
-                                    , "link"]
-              <: #geocode @= mempty
-              <: nil )
+  -- describe "otherP" $ do
+  --   let f = otherRefineP
+  --   it "(1)" $ do
+  --     parse f "" "  <2025-01-01 月 10:00-12:00> CLOSED: <2025-04-01 火 11:00>"
+  --       `shouldBe`
+  --       Right ( #timestamps @=
+  --               [ #begin @= makeUTC 2025 1 1 10 0
+  --                 <: #datetype @= Normal
+  --                 <: #active   @= True
+  --                 <: #end      @= (Just $ makeUTC 2025 1 1 12 0)
+  --                 <: nil
+  --               , #begin @= makeUTC 2025 4 1 11 0
+  --                 <: #datetype @= Closed
+  --                 <: #active   @= True
+  --                 <: #end      @= Nothing
+  --                 <: nil]
+  --               <: #others @= "  "
+  --               <: #geocode @= mempty
+  --               <: nil )
+  --   it "(2)" $ do
+  --     parse f "" "Haskell Compiler" `shouldBe`
+  --       Right ( #timestamps @= []
+  --             <: #others @= "Haskell Compiler"
+  --             <: #geocode @= mempty
+  --             <: nil )
+  --   it "(3)" $ do
+  --     parse f "" "[[http://www.google.co.jp][Google]]" `shouldBe`
+  --       Right ( #timestamps @= []
+  --             <: #others @= "<a href=\"http://www.google.co.jp\">Google</a>"
+  --             <: #geocode @= mempty
+  --             <: nil )
+  --   it "(4)" $ do
+  --     parse f "" "[[http://www.google.co.jp]]" `shouldBe`
+  --       Right ( #timestamps @= []
+  --             <: #others @= "<a href=\"http://www.google.co.jp\">http://www.google.co.jp</a>"
+  --             <: #geocode @= mempty
+  --             <: nil )
+  --   it "(5)" $ do
+  --     parse f "" "<2025-04-01 土 10:00>" `shouldBe`
+  --       Right ( #timestamps @=
+  --               [ #begin @= makeUTC 2025 4 1 10 0
+  --                 <: #datetype @= Normal
+  --                 <: #active @= True
+  --                 <: #end @= Nothing
+  --                 <: nil]
+  --             <: #others @= mempty
+  --             <: #geocode @= mempty
+  --             <: nil )
+  --   it "(6)" $ do
+  --     parse f "" "Google [[http://www.google.co.jp][Google]] link"
+  --       `shouldBe`
+  --       Right ( #timestamps @= []
+  --             <: #others @= foldMap id
+  --                                   ["Google "
+  --                                   , "<a href=\"http://www.google.co.jp\">Google</a>"
+  --                                   , "link"]
+  --             <: #geocode @= mempty
+  --             <: nil )

@@ -1,8 +1,8 @@
-{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE AllowAmbiguousTypes   #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE KindSignatures        #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE AllowAmbiguousTypes   #-}
+{-# LANGUAGE OverloadedStrings     #-}
 module Org.GoogleCalendar.Event
   (
     CalendarEvent (..)
@@ -20,20 +20,20 @@ module Org.GoogleCalendar.Event
   )
 where
 
-import           Data.Maybe             (fromMaybe, fromJust, isNothing, isJust)
-import           Data.Function          (on)
 import           Data.Aeson
-import           Data.Aeson.Key         (fromString)
-import           Data.Aeson.Types       hiding (parse, parseMaybe)
-import           Data.Kind              (Type)
-import           Data.Void              (Void)
-import           Data.Time
-import           Data.Functor           ((<&>))
-import           Text.Megaparsec
-import           Text.Megaparsec.Char   (digitChar)
+import           Data.Aeson.Key       (fromString)
+import           Data.Aeson.Types     hiding (parse, parseMaybe)
+import           Data.Function        (on)
+import           Data.Functor         ((<&>))
 import           Data.Functor.Const
-import qualified Data.List              as Dl
-import qualified Data.Text              as Tx
+import           Data.Kind            (Type)
+import qualified Data.List            as Dl
+import           Data.Maybe           (fromJust, fromMaybe, isJust, isNothing)
+import qualified Data.Text            as Tx
+import           Data.Time
+import           Data.Void            (Void)
+import           Text.Megaparsec
+import           Text.Megaparsec.Char (digitChar)
 
 data CalendarEvent =
   CalendarEvent { eventCreated     :: Maybe UTCTime
@@ -113,8 +113,7 @@ testEvent =
 instance FromJSON CalendarEvent where
   parseJSON (Object v) =
     let
-      descRefine = (v .:? "description")
-                   >>= return . (Tx.dropWhile (== '\n') <$>)
+      descRefine = (v .:? "description") <&> (Tx.dropWhile (== '\n') <$>)
       startParse = toUTCTime <$> (v .: "start") -- Parse (Maybe UTCTime)
       endParse   = toUTCTime <$> (v .: "end")   -- Parse (Maybe UTCTime)
       endTime    = repairTime <$> startParse <*> endParse
@@ -224,7 +223,7 @@ jpTimeLocale =
 
 toUTCTime :: EventTime -> Maybe UTCTime
 toUTCTime (EventTime d dt) = (d <|> dt) >>= parseMaybe dateParse
--- toUTCTime (EventTime d dt) = 
+-- toUTCTime (EventTime d dt) =
   -- case (d <|> dt) of
   --   Nothing -> error $ show d ++ show dt
   --   Just d' ->
@@ -235,7 +234,7 @@ toUTCTime (EventTime d dt) = (d <|> dt) >>= parseMaybe dateParse
 data GoogleTimeType = GDate | GDateTime deriving (Eq)
 
 instance Show GoogleTimeType where
-  show GDate = "date"
+  show GDate     = "date"
   show GDateTime = "dateTime"
 
 googleTimeFormat :: UTCTime -> GoogleTimeType -> String
@@ -320,7 +319,7 @@ class Applicative a => ComposeString (a :: Type -> Type) where
     | isFailureString (f event) = False
     | otherwise = case q of
                     QContains s -> s `contains` unpureString (f event)
-                    _ -> False
+                    _           -> False
 
   f <-> q = runStringQ f q
 
@@ -341,7 +340,7 @@ instance ComposeString Maybe where
   isFailureString = isNothing
 
 contains :: String -> String -> Bool
-contains [] _ = False
+contains [] _      = False
 contains part subs = part `elem` (Dl.inits subs ++ Dl.tails subs)
 
 matchQuery :: [CalendarEvent -> Bool] -> CalendarEvent -> Bool

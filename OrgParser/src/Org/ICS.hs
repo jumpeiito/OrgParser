@@ -13,26 +13,26 @@ module Org.ICS
   )
 where
 
-import qualified Data.List                   as Dl
-import           Data.Text                   (Text)
-import           Data.Function               (on)
-import           Data.Time
+import qualified Control.Concurrent.Async as A
+import           Control.Monad            (forM_)
+import           Control.Monad.State
 import           Data.Aeson
 import           Data.Aeson.Types
-import           Data.Maybe                  (fromJust, isJust)
-import qualified Data.Vector                 as V
-import qualified Data.Set                    as S
-import           Data.String.Conversions     (convertString)
-import           Control.Monad               (forM_)
-import           Control.Monad.State
+import           Data.Function            (on)
+import qualified Data.List                as Dl
+import           Data.Maybe               (fromJust, isJust)
+import qualified Data.Set                 as S
+import           Data.String.Conversions  (convertString)
+import           Data.Text                (Text)
+import qualified Data.Text.IO             as TxIO
+import           Data.Time
+import qualified Data.Vector              as V
+import qualified GHC.IO.Encoding          as Encoding
 import           Network.HTTP.Req
-import           Org.Conduit                 (forICSVector)
-import           Org.Google.Client           (App, Client (..)
-                                             , appCoreCalendar)
+import           Org.Conduit              (forICSVector)
+import           Org.Google.Client        (App, Client (..), appCoreCalendar)
+import qualified Org.GoogleCalendar.Color as GCC
 import           Org.GoogleCalendar.Event
-import qualified Org.GoogleCalendar.Color    as GCC
-import qualified GHC.IO.Encoding             as Encoding
-import qualified Data.Text.IO                as TxIO
 
 data CalendarEventEqual = CeeAlmost CalendarEvent
                         | CeeEdible CalendarEvent CalendarEvent
@@ -109,8 +109,8 @@ getGoogleCalendarList cal = Dl.sort <$> loop Nothing []
     loop pageToken ret = do
       CalendarResponse events np <- getGoogleCalendarPage pageToken cal
       case np of
-        Just _  -> loop np (ret ++ V.toList (events))
-        Nothing -> return (ret ++ V.toList (events))
+        Just _  -> loop np (ret ++ V.toList events)
+        Nothing -> return (ret ++ V.toList events)
 
 getGoogleCalendarVector :: Calendar -> App (V.Vector CalendarEvent)
 getGoogleCalendarVector cal = loop Nothing V.empty
@@ -123,12 +123,12 @@ getGoogleCalendarVector cal = loop Nothing V.empty
 
 getGoogleCalendarPage :: Maybe Text -> Calendar -> App CalendarResponse
 getGoogleCalendarPage nextToken cal = do
-  aToken <- accessToken . snd <$> get
+  aToken <- gets (accessToken . snd)
   runReq defaultHttpConfig $ do
     res <- req GET (url cal) NoReqBody jsonResponse
                (headerAuthorization aToken <> query)
     -- liftIO $ print (responseBody res)
-    return $ (responseBody res :: CalendarResponse)
+    return (responseBody res :: CalendarResponse)
       where
         options :: [(Text, Text)]
         query   :: Option scheme
@@ -187,36 +187,33 @@ updateGoogleCalendar :: Calendar -> IO ()
 updateGoogleCalendar cal = do
   Encoding.setLocaleEncoding Encoding.utf8
   appCore <- appCoreCalendar
-  (`evalStateT` appCore) $ do
-    gcalList <- getGoogleCalendarVector cal
-    allev    <- liftIO forICSVector
-    let events    = V.filter (filterEvent cal) allev
-    let setMap f  = S.fromList . V.toList . V.map f
-    let almostSet = setMap Almost gcalList
-    let edibleSet = setMap Edible gcalList
-    let almostOrg = setMap Almost events
-    let diffs     = diffCalendarEvent events almostSet edibleSet gcalList
-    let diffVerse = diffVerseCalendarEvent almostOrg gcalList
-    -- forM_ (filter isEdible diffs) $ \(CeeEdible c1 c2) -> do
-    --   liftIO $ print (CeeEdible c1 c2)
-    --   liftIO $ print $ _makeCeeMatcher (CeeEdible c1 c2)
-    --   liftIO $ print $ show $ eventDescription c1
-    --   liftIO $ print $ show $ eventDescription c2
-    edibleEventsReplace cal diffs
-    newEventsInsert cal diffs
-    verseColored cal diffVerse
+  A.withAsync (getGoogleCalendarVector cal `evalStateT` appCore) $ \gl -> do
+    A.withAsync forICSVector $ \al-> do
+      gcalList <- A.wait gl
+      allev    <- A.wait al
+      let events    = V.filter (filterEvent cal) allev
+      let setMap f  = S.fromList . V.toList . V.map f
+      let almostSet = setMap Almost gcalList
+      let edibleSet = setMap Edible gcalList
+      let almostOrg = setMap Almost events
+      let diffs     = diffCalendarEvent events almostSet edibleSet gcalList
+      let diffVerse = diffVerseCalendarEvent almostOrg gcalList
+      (`evalStateT` appCore) $ do
+        edibleEventsReplace cal diffs
+        newEventsInsert cal diffs
+        verseColored cal diffVerse
 
-edibleEventsReplace :: Calendar -> (V.Vector CalendarEventEqual) -> App ()
+edibleEventsReplace :: Calendar -> V.Vector CalendarEventEqual -> App ()
 edibleEventsReplace cal events =
   forM_ (V.filter isEdible events) $ replaceEvent cal
 
-newEventsInsert :: Calendar -> (V.Vector CalendarEventEqual) -> App ()
+newEventsInsert :: Calendar -> V.Vector CalendarEventEqual -> App ()
 newEventsInsert cal events =
   forM_ (V.filter isCeeNot events) $ \case
      CeeNot s -> insertEvent cal s
      _        -> return ()
 
-verseColored :: Calendar -> (V.Vector CalendarEvent) -> App ()
+verseColored :: Calendar -> V.Vector CalendarEvent -> App ()
 verseColored cal = mapM_ eventColored
   where
     newEV ev = ev { eventColorID = Just "11" } -- Tomato
@@ -226,7 +223,7 @@ verseColored cal = mapM_ eventColored
 
 insertEvent :: Calendar -> CalendarEvent -> App ()
 insertEvent cal ev = do
-  aToken <- accessToken . snd <$> get
+  aToken <- gets (accessToken . snd)
   runReq defaultHttpConfig $ do
     res  <- req POST (url cal) (ReqBodyJson ev) jsonResponse
               (headerAuthorization aToken)
@@ -235,7 +232,7 @@ insertEvent cal ev = do
 
 replaceEvent :: Calendar -> CalendarEventEqual -> App ()
 replaceEvent cal (CeeEdible org gcal) = do
-  aToken <- accessToken . snd <$> get
+  aToken <- gets (accessToken . snd)
   let evid = convertString $ eventID gcal
   let url' = url cal /: evid
   runReq defaultHttpConfig $ do
