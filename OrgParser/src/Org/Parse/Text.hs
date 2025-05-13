@@ -32,6 +32,7 @@ module Org.Parse.Text
   , geocodeP
   , otherRefineP
   , otherExtremeP
+  , lineParse2
   )
 where
 
@@ -88,6 +89,7 @@ newtype LevelEQTitle text = LEQ (Title text)
 newtype Geocode text      = Geo (Title text)
 
 instance NFData GeocodeSearch where rnf = rwhnf
+instance NFData (Line a) where rnf = rwhnf
 
 instance Show (Geocode text) where
   show (Geo t) =
@@ -291,6 +293,15 @@ lineParse = LO defOther `option` (ll <|> lp <|> lb <|> lo)
     lb = try linebreakP >> return LB
     lo = LO <$> try otherRefineP
 {-# INLINE lineParse #-}
+
+lineParse2 :: TitleBuilder text => Parser (Line text)
+lineParse2 = LO defOther `option` (ll <|> lp <|> lb <|> lo)
+  where
+    ll = LL <$> try titleP
+    lp = LP <$> try propertyP
+    lb = try linebreakP >> return LB
+    lo = LO <$> try otherExtremeP
+{-# INLINE lineParse2 #-}
 
 aliveTimes :: Title text -> [Timestamp]
 aliveTimes ttl = filter notCloseAndActive $ ttl ^. #timestamps
