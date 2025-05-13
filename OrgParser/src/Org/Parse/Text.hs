@@ -219,10 +219,6 @@ linebreakP = chunk "# linebreak" >> return LineBreak
 
 -- ((someTill (single ' ') (lookAhead (single ':')) >> (single ':')) :: Parser (Token Tx.Text)) `parseTest` Tx.pack "   :"
 -- >>> ':'
-test l = do
-  eof >> return l
-  <|> (linebreakP >> return l)
-  <|> ((:) <$> anySingle <*> test l)
 
 otherRefineP :: TitleBuilder text => Parser (Other text)
 -- otherRefineP = def `option` (loop def <|> literalOnly def)
@@ -230,7 +226,7 @@ otherRefineP = def `option` (loop def <|> literalOnly def)
   where
     def = defOther
     spaces = many (single ' ')
-    loop :: TitleBuilder text => (Other text) -> Parser (Other text)
+    loop :: TitleBuilder text => Other text -> Parser (Other text)
     loop o = anyP [ eof' o
                   , timestamp' o
                   , link' o
@@ -276,12 +272,12 @@ otherExtremeP = loop defOther mempty
     others o txt = do
       s <- anySingle
       loop o (txt <> fromToken [s])
-    loop :: TitleBuilder text => (Other text) -> text -> Parser (Other text)
+    loop :: TitleBuilder text => Other text -> text -> Parser (Other text)
     loop o txt = do
-      try eof >> (eofOperate o txt)
-      <|> (tsOperate o txt)
-      <|> (lkOperate o txt)
-      <|> (gcOperate o txt)
+      try eof >> eofOperate o txt
+      <|> tsOperate o txt
+      <|> lkOperate o txt
+      <|> gcOperate o txt
       <|> others o txt
 {-# INLINE otherExtremeP #-}
 
@@ -351,6 +347,6 @@ instance TitleBuilder TXB.TextBuilder where
   toText = TXB.toText
 
 -- type TB = TXB.TextBuilder
-type BuilderType = Tx.Text
+-- type BuilderType = Tx.Text
 -- type BuilderType = String
--- type BuilderType = TXB.TextBuilder
+type BuilderType = TXB.TextBuilder
