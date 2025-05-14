@@ -1,5 +1,7 @@
+{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase        #-}
 module Org.Google.Client
   (
     Client (..)
@@ -26,6 +28,7 @@ import           Data.Functor            ((<&>))
 import           Data.Maybe              (fromJust, fromMaybe, isJust)
 import           Data.String.Conversions (convertString)
 import qualified Data.Text               as Tx
+import qualified Data.Text.IO            as TxIO
 import           Network.HTTP.Req
 import qualified Network.HTTP.Types.URI  as Types
 import           System.Environment      (getEnv)
@@ -175,17 +178,14 @@ _test config = do
     Nothing -> return ()
     Just c  -> do
       -- txt <- aliveAccessToken `evalStateT` (config, c)
-      txt <- getPermissionURI `evalStateT` (config, c)
-      print txt
-      -- getRefreshToken `evalStateT` (config, c)
+      -- txt <- getPermissionURI `evalStateT` (config, c)
+      -- print txt
+      getRefreshToken `evalStateT` (config, c)
 
 getRefreshToken :: App ()
 getRefreshToken = do
   (cfg, cl) <- get
   let redirect = head $ redirectURI cl
-  -- let clientid = clientID cl
-  -- let clientsc = clientSecret cl
-  -- let permiss  = permissionCode cl
   let params :: [(Text, Text)]
       params = [ ("code",          permissionCode cl)
                , ("client_id" ,    clientID cl)
@@ -204,28 +204,39 @@ getRefreshToken = do
            (query <> reqHead)
     liftIO $ print (responseBody res :: Value)
 
+refreshAccessTokenParse :: Maybe RefreshJSON -> App Text
+refreshAccessTokenParse Nothing = return mempty
+refreshAccessTokenParse (Just rj) = do
+  (cfg, cl) <- get
+  let newAccessToken = rjaToken rj
+  put (cfg, cl { accessToken = newAccessToken })
+  writeClient
+  return newAccessToken
+
 refreshAccessToken :: App Text
 refreshAccessToken = do
   (cfg, cl) <- get
-  let cid = clientID cl
-  let csc = clientSecret cl
-  let rt  = refreshToken cl
-  let otkServer = oauthTokenServer cfg
   let params =
-          [ ("client_id" ,    cid)
-          , ("client_secret", csc)
-          , ("refresh_token", rt)
+          [ ("client_id" ,    clientID cl)
+          , ("client_secret", clientSecret cl)
+          , ("refresh_token", refreshToken cl)
           , ("grant_type",    "refresh_token")] :: [(Text, Text)]
-  let query = foldMap (uncurry (=:)) params
-  res <- runReq defaultHttpConfig
-         $ req POST otkServer  NoReqBody lbsResponse query
-  case decode (responseBody res) of
-    Nothing -> return mempty
-    Just rj -> do
-      let newAccessToken = rjaToken rj
-      put (cfg, cl { accessToken = newAccessToken })
-      writeClient
-      return newAccessToken
+  let request = req POST
+                    (oauthTokenServer cfg)
+                    NoReqBody
+                    lbsResponse
+                    (foldMap (uncurry (=:)) params)
+  res <- ((decode . responseBody) <$> runReq defaultHttpConfig request)
+         `catch` errorHandle
+  refreshAccessTokenParse res
+  where
+    errorHandle :: HttpException
+      -> StateT AppCore IO (Maybe RefreshJSON)
+    errorHandle = \case
+      VanillaHttpException _ -> do
+        getPermissionURI >>= liftIO . TxIO.putStrLn
+        error "Refresh-Token has expired, and Browse the below urls with Internet Blowser, and get the permisson code."
+        return Nothing
 
 validateAccessToken :: App Bool
 validateAccessToken = do
@@ -239,14 +250,13 @@ validateAccessToken = do
   `catch`
     errorHandle
   where
-    errorHandle err =
-      case err of
-        VanillaHttpException _ -> do
-          liftIO $ print ("AccessToken to refresh" :: String)
-          return False
-        JsonHttpException e -> do
-          liftIO $ print e
-          return False
+    errorHandle = \case
+      VanillaHttpException _ -> do
+        liftIO $ print ("AccessToken to refresh" :: String)
+        return False
+      JsonHttpException e -> do
+        liftIO $ print e
+        return False
 
 aliveAccessToken :: App Text
 aliveAccessToken = do

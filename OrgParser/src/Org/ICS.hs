@@ -97,12 +97,6 @@ headerAuthorization :: Text -> Option scheme
 headerAuthorization atoken =
   header "Authorization" ("Bearer " <> convertString atoken)
 
--- accessTokenPair :: IO (String, Client)
--- accessTokenPair = do
---   c <- clientFromFile
---   a <- aliveAccessToken `runReaderT` c
---   return (a, c)
-
 getGoogleCalendarList :: Calendar -> App [CalendarEvent]
 getGoogleCalendarList cal = Dl.sort <$> loop Nothing []
   where
@@ -293,8 +287,3 @@ _makeCeeMatcher (CeeEdible c1 c2) =
      (judge eventSummary)
      (judge eventLocation)
 _makeCeeMatcher _ = error ""
-
--- _testInsert :: IO ()
--- _testInsert = do
---   apair <- accessTokenPair
---   insertEvent googleFamilyCalendar testEvent `runStateT` apair
