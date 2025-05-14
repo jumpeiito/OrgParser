@@ -226,16 +226,16 @@ refreshAccessToken = do
                     NoReqBody
                     lbsResponse
                     (foldMap (uncurry (=:)) params)
-  res <- ((decode . responseBody) <$> runReq defaultHttpConfig request)
+  res <- (decode . responseBody <$> runReq defaultHttpConfig request)
          `catch` errorHandle
   refreshAccessTokenParse res
   where
-    errorHandle :: HttpException
-      -> StateT AppCore IO (Maybe RefreshJSON)
     errorHandle = \case
       VanillaHttpException _ -> do
         getPermissionURI >>= liftIO . TxIO.putStrLn
-        error "Refresh-Token has expired, and Browse the below urls with Internet Blowser, and get the permisson code."
+        error "Refresh-Token has expired, and Browse the below urls with Internet Blowserto get the permisson code."
+      e -> do
+        liftIO $ print e
         return Nothing
 
 validateAccessToken :: App Bool
@@ -262,5 +262,5 @@ aliveAccessToken :: App Text
 aliveAccessToken = do
   valid <- validateAccessToken
   case valid of
-    True  -> get <&> accessToken . snd
+    True  -> gets (accessToken . snd)
     False -> refreshAccessToken

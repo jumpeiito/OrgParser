@@ -347,6 +347,6 @@ instance TitleBuilder TXB.TextBuilder where
   toText = TXB.toText
 
 -- type TB = TXB.TextBuilder
--- type BuilderType = Tx.Text
+type BuilderType = Tx.Text
 -- type BuilderType = String
-type BuilderType = TXB.TextBuilder
+-- type BuilderType = TXB.TextBuilder

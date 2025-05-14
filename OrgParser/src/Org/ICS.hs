@@ -1,6 +1,6 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Org.ICS
   (
     getGoogleCalendarList
@@ -14,23 +14,24 @@ module Org.ICS
 where
 
 import qualified Control.Concurrent.Async as A
-import           Control.Monad (forM_)
+import           Control.Monad            (forM_)
 import           Control.Monad.State
 import           Data.Aeson
 import           Data.Aeson.Types
-import           Data.Function (on)
-import qualified Data.List as Dl
-import           Data.Maybe (fromJust, isJust)
-import qualified Data.Set as S
-import           Data.String.Conversions (convertString)
-import           Data.Text (Text)
-import qualified Data.Text.IO as TxIO
+import           Data.Function            (on)
+import qualified Data.List                as Dl
+import           Data.Maybe               (fromJust, isJust)
+import qualified Data.Set                 as S
+import           Data.String.Conversions  (convertString)
+import           Data.Text                (Text)
+import qualified Data.Text.IO             as TxIO
 import           Data.Time
-import qualified Data.Vector as V
-import qualified GHC.IO.Encoding as Encoding
+import qualified Data.Vector              as V
+import qualified GHC.IO.Encoding          as Encoding
 import           Network.HTTP.Req
-import           Org.Conduit (forICSVector)
-import           Org.Google.Client (App, Client (..), appCoreCalendar, Config)
+import           Org.Conduit              (forICSVector)
+import           Org.Google.Client        (App, Client (..), Config,
+                                           appCoreCalendar)
 import qualified Org.GoogleCalendar.Color as GCC
 import           Org.GoogleCalendar.Event
 
@@ -87,11 +88,11 @@ googleFamilyCalendar =
 
 isEdible :: CalendarEventEqual -> Bool
 isEdible (CeeEdible _ _) = True
-isEdible _ = False
+isEdible _               = False
 
 isCeeNot :: CalendarEventEqual -> Bool
 isCeeNot (CeeNot _) = True
-isCeeNot _ = False
+isCeeNot _          = False
 
 headerAuthorization :: Text -> Option scheme
 headerAuthorization atoken =
@@ -276,7 +277,7 @@ getColors = do
 ---- for debug --------------------------------------------------
 _isCeeAlmost :: CalendarEventEqual -> Bool
 _isCeeAlmost (CeeAlmost _) = True
-_isCeeAlmost _ = False
+_isCeeAlmost _             = False
 
 _makeCeeMatcher :: CalendarEventEqual -> CeeMatcher
 _makeCeeMatcher (CeeEdible c1 c2) =
