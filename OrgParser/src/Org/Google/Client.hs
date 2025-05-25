@@ -187,12 +187,12 @@ getRefreshToken = do
   (cfg, cl) <- get
   let redirect = head $ redirectURI cl
   let params :: [(Text, Text)]
+      query :: Option scheme
       params = [ ("code",          permissionCode cl)
                , ("client_id" ,    clientID cl)
                , ("client_secret", clientSecret cl)
                , ("redirect_uri",  redirect)
                , ("grant_type",    "authorization_code")]
-      query :: Option scheme
       query   = foldMap (uncurry (=:)) params
       reqHead = "Content-Type" `header` "application/x-www-form-urlencoded"
   runReq defaultHttpConfig $ do
@@ -231,11 +231,12 @@ refreshAccessToken = do
   refreshAccessTokenParse res
   where
     errorHandle = \case
-      VanillaHttpException _ -> do
+      VanillaHttpException e -> do
         getPermissionURI >>= liftIO . TxIO.putStrLn
-        error "Refresh-Token has expired, and Browse the below urls with Internet Blowserto get the permisson code."
-      e -> do
         liftIO $ print e
+        error "Refresh-Token has expired, and Browse the below urls with Internet Blowserto get the permisson code."
+      _ -> do
+        -- liftIO $ print e
         return Nothing
 
 validateAccessToken :: App Bool

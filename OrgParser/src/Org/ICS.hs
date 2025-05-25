@@ -184,6 +184,7 @@ runAppCalendar f = do
   f `evalStateT` app
 
 updateGoogleCalendar :: Calendar -> IO ()
+-- updateGoogleCalendar :: MonadIO m => Calendar -> m ()
 updateGoogleCalendar cal = do
   Encoding.setLocaleEncoding Encoding.utf8
   -- appCore <- appCoreCalendar
